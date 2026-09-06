@@ -308,6 +308,7 @@ jobs:
             game-mods/FCMBridge/hudmodloader-chat/FcmUserEvent.hx
             game-mods/FCMBridge/hudmodloader-chat/FcmHistory.hx
             game-mods/FCMBridge/hudmodloader-chat/FcmRoster.hx
+            game-mods/FCMBridge/hudmodloader-chat/FcmServerSession.hx
             game-mods/FCMBridge/hudmodloader-chat/TestFcmHistory.hx
             game-mods/FCMBridge/hudmodloader-chat/TestFcmRoster.hx
             game-mods/FCMBridge/hudmodloader-chat/test-history.hxml

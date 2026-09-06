@@ -35,7 +35,7 @@ import { mintToken, verifyToken, updateDisplayName, markRelayTokenLinked } from 
 import { slugToChannelId, channelIdToSlug, ALL_SLUGS, SLUG_TO_UUID } from './channelMap';
 import { repairChannel, repairBody, readWireDisplayName } from './wireSanitize';
 import { setWorldId, getWorldId, clearWorldId } from './worldIdService';
-import { setRoster, clearRoster, computeRooms } from './worldRosterService';
+import { setRoster, clearRoster, computeRooms, readRoster } from './worldRosterService';
 import { nextRelaySeq } from './relaySeq';
 import {
   rememberClientVersion,
@@ -593,7 +593,7 @@ function rebindLocalSubscribers(userId: string, worldId: string | null): void {
 // each other's live-frame barriers. Entries are removed when the last task finishes.
 const historyReplayTasks = new Map<string, Promise<void>>();
 
-function replayHistoryToUser(userId: string, worldId: string | null): Promise<void> {
+function replayHistoryToUser(userId: string, worldId: string | null, requestId = ''): Promise<void> {
   const previous = historyReplayTasks.get(userId) ?? Promise.resolve();
   const task = previous.catch(() => {}).then(async () => {
     const targets = [...subscribers].filter((sub) => sub.userId === userId
@@ -608,11 +608,17 @@ function replayHistoryToUser(userId: string, worldId: string | null): Promise<vo
       // Replay identity is distinct from persisted message identity. Reserve a contiguous
       // delivery range only after reading the snapshot; pending live frames are merged below.
       // Original messageId/createdAt and SQL/Redis history cursors remain unchanged.
-      const count = history.length + (worldId === null ? 1 : 0);
+      const confirmation = worldId !== null && requestId.length > 0;
+      const count = history.length + (worldId === null || confirmation ? 1 : 0);
       if (count === 0) return;
       const redis = await getRedisClient();
       const end = await redis.incrBy('relay:seq', count);
-      const replay: Array<Record<string, unknown>> = history.map((event, index) => ({ ...event, id: end - count + index + 1 }));
+      const replay: Array<Record<string, unknown>> = history.map((event, index) => ({ ...event, id: end - count + index + 1 + (confirmation ? 1 : 0) }));
+      if (confirmation) replay.unshift({
+        id: end - count + 1, kind: 'chat.message', channel: 'system', messageId: uuidv4(),
+        senderUserId: 'system', senderDisplayName: 'FCM', targetUserId: '',
+        body: `FCMCTL/1/SERVER-READY:${requestId}|${worldId}`, createdAt: new Date().toISOString(),
+      });
       if (worldId === null) replay.push({
         id: end, kind: 'chat.message', channel: 'system', messageId: uuidv4(),
         senderUserId: 'system', senderDisplayName: 'FCM', targetUserId: '',
@@ -653,8 +659,8 @@ function replayHistoryToUser(userId: string, worldId: string | null): Promise<vo
   return task;
 }
 
-async function backfillWorldToUser(userId: string, worldId: string): Promise<void> {
-  await replayHistoryToUser(userId, worldId);
+async function backfillWorldToUser(userId: string, worldId: string, requestId = ''): Promise<void> {
+  await replayHistoryToUser(userId, worldId, requestId);
 }
 
 async function backfillStaticHistoryToUser(userId: string): Promise<void> {
@@ -666,38 +672,32 @@ async function backfillStaticHistoryToUser(userId: string): Promise<void> {
  * CHANGE, re-bind this user's subscriber(s) (locally + across instances) and
  * backfill the new world's recent history so the SERVER tab populates on join.
  */
-async function handleWorldJoin(identity: RelayToken, worldId: string): Promise<void> {
+async function handleWorldJoin(identity: RelayToken, worldId: string, requestId = ''): Promise<void> {
   const prev = await getWorldId(identity.userId);
   const shouldBackfillResync = consumeServerHistoryResyncPending(identity.userId);
   await setWorldId(identity.userId, worldId); // refresh 60s TTL (keepalive)
-  if (prev === worldId && !shouldBackfillResync) return; // same world — just a keepalive, no membership change
+  if (prev === worldId && !shouldBackfillResync && !requestId) return;
   rebindLocalSubscribers(identity.userId, worldId);
-  await publishRebind(identity.userId, worldId);
-  await backfillWorldToUser(identity.userId, worldId);
+  await publishRebind(identity.userId, worldId, requestId, relayInstanceId);
+  await backfillWorldToUser(identity.userId, worldId, requestId);
 }
 
 /**
  * Recompute roster-derived rooms and apply changes: any user whose roomKey moved is
  * re-bound exactly like a worldId change (setWorldId + subscriber rebind + backfill).
  */
-async function applyRoomAssignments(): Promise<void> {
+async function applyRoomAssignments(requester = ''): Promise<void> {
   const rooms = await computeRooms();
+  if (requester && !rooms.has(requester)) throw new Error('Current roster could not be assigned');
   for (const [userId, roomKey] of rooms) {
     const current = await getWorldId(userId);
     const shouldBackfillResync = consumeServerHistoryResyncPending(userId);
-    if (current === roomKey) {
-      await setWorldId(userId, roomKey); // refresh TTL
-      if (shouldBackfillResync) {
-        rebindLocalSubscribers(userId, roomKey);
-        await publishRebind(userId, roomKey);
-        await backfillWorldToUser(userId, roomKey);
-      }
-      continue;
-    }
     await setWorldId(userId, roomKey);
+    const requestId = (await readRoster(userId))?.requestId ?? '';
+    if (current === roomKey && !shouldBackfillResync && !(userId === requester && requestId)) continue;
     rebindLocalSubscribers(userId, roomKey);
-    await publishRebind(userId, roomKey);
-    await backfillWorldToUser(userId, roomKey);
+    await publishRebind(userId, roomKey, requestId, relayInstanceId);
+    await backfillWorldToUser(userId, roomKey, requestId);
     logger.info({ userId, roomKey }, '[relayHandler] roster room assigned');
   }
 }
@@ -777,14 +777,16 @@ async function ensurePubSub(): Promise<void> {
       try { parsed = JSON.parse(message); } catch { return; }
 
       if (parsed.kind === 'rebind') {
+        if (parsed.sourceInstanceId === relayInstanceId) return;
         const userId = typeof parsed.userId === 'string' ? parsed.userId : null;
         const worldId = typeof parsed.worldId === 'string' ? parsed.worldId : null;
         if (userId) {
           const shouldBackfillResync = consumeServerHistoryResyncPending(userId);
           rebindLocalSubscribers(userId, worldId);
-          if (shouldBackfillResync && worldId) {
+          const requestId = typeof parsed.requestId === 'string' && /^[a-z0-9-]{1,64}$/.test(parsed.requestId) ? parsed.requestId : '';
+          if ((shouldBackfillResync || requestId) && worldId) {
             try {
-              await backfillWorldToUser(userId, worldId);
+              await backfillWorldToUser(userId, worldId, requestId);
             } catch (err) {
               logger.warn({ err, userId, worldId }, '[relayHandler] server history backfill on resync rebind failed');
             }
@@ -1026,6 +1028,9 @@ async function handleSend(ws: WebSocket, frame: Record<string, unknown>): Promis
   const channelRepair = repairChannel(frame.channel, (s) => ALL_SLUGS.includes(s));
   const slug = channelRepair.slug;
   const body = repairBody(frame.body, channelRepair.mangled);
+  const sessionTarget = typeof frame.targetUserId === 'string' ? repairBody(frame.targetUserId, channelRepair.mangled) : '';
+  const sessionMatch = /^FCMSESSION\/1;([a-z0-9-]{1,64})$/.exec(sessionTarget);
+  const requestId = sessionMatch?.[1] ?? '';
 
   // ── Authenticated world/roster control intercept (before ALL_SLUGS check) ──
   // Actor identity comes only from `identity`, derived from the relay token above.
@@ -1037,7 +1042,7 @@ async function handleSend(ws: WebSocket, frame: Record<string, unknown>): Promis
         send(ws, errEnvelope('rate_limited', 'World controls are temporarily rate limited'));
         return;
       }
-      await handleWorldJoin(identity, worldId);
+      await handleWorldJoin(identity, worldId, requestId);
       sendControlAck(ws);
       return;
     }
@@ -1060,8 +1065,8 @@ async function handleSend(ws: WebSocket, frame: Record<string, unknown>): Promis
         send(ws, errEnvelope('rate_limited', 'World controls are temporarily rate limited'));
         return;
       }
-      await setRoster(identity.userId, identity.fo76Name, names);
-      await applyRoomAssignments();
+      await setRoster(identity.userId, identity.fo76Name, names, requestId);
+      await applyRoomAssignments(identity.userId);
       sendControlAck(ws);
       return;
     }
@@ -1122,6 +1127,10 @@ async function handleSend(ws: WebSocket, frame: Record<string, unknown>): Promis
     const worldId = await getWorldId(identity.userId);
     if (!worldId) {
       send(ws, errEnvelope('invalid_channel', 'No active server session — send worldId first'));
+      return;
+    }
+    if (sessionTarget.startsWith('FCMROOM/1;') && sessionTarget.slice('FCMROOM/1;'.length) !== worldId) {
+      send(ws, errEnvelope('invalid_channel', 'Server session changed; wait for a fresh room confirmation'));
       return;
     }
     if (!(await checkServerRateLimit(identity.userId))) {

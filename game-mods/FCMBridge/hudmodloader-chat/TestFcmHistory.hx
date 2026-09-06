@@ -6,6 +6,27 @@ class TestFcmHistory {
     static function main():Void {
         TestFcmRoster.main();
         for (provider in [FcmNativeApi.ZFE, FcmNativeApi.XSCAL]) {
+            var session = new FcmServerSession();
+            session.begin("first");
+            session.defer("old queue");
+            check(provider + " queued success is not membership", !session.accept('{"success":true}'));
+            check(provider + " confirmed first room", session.accept("FCMCTL/1/SERVER-READY:first|r:one"));
+            session.begin("next");
+            check(provider + " world hop clears deferred rows", session.takePending().length == 0);
+            session.defer("live row before confirmation");
+            check(provider + " world hop clears confirmed room", session.room == "");
+            check(provider + " delayed old confirmation rejected", !session.accept("FCMCTL/1/SERVER-READY:first|r:one"));
+            check(provider + " empty room rejected", !session.accept("FCMCTL/1/SERVER-READY:next|"));
+            check(provider + " new room confirmed", session.accept("FCMCTL/1/SERVER-READY:next|r:two") && session.room == "r:two");
+            check(provider + " early live row survives until confirmed", session.takePending().join("") == "live row before confirmation");
+            check(provider + " deferred rows are taken once", session.takePending().length == 0);
+            for (i in 0...70) session.defer(Std.string(i));
+            var buffered = session.takePending();
+            check(provider + " deferred native queue is bounded", buffered.length == 64 && buffered[0] == "6");
+            check(provider + " current room message accepted", session.acceptsMessage("server:r:two:42"));
+            check(provider + " queued old room message rejected", !session.acceptsMessage("server:r:one:43"));
+            check(provider + " unscoped server message rejected", !session.acceptsMessage("unknown"));
+            check(provider + " confirmation expires", session.fresh(59999) && !session.fresh(60000));
             check(provider + " supports retained-subscriber recovery",
                 FcmNativeApi.widgetMustRequestHistoryResync(provider));
             var history = new FcmHistory();

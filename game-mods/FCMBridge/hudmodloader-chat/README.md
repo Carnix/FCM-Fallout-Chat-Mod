@@ -2,7 +2,7 @@
 
 A HUDModLoader widget that adds interactive FCM community chat to Fallout 76's HUD.
 
-> **Status (2026-09-05):** v2.10.57 — source, relay, and packaged BA2 are kept together. The
+> **Status (2026-09-05):** v2.10.58 — source, relay, and packaged BA2 are kept together. The
 > in-game mod is an explicit opt-in; the default desktop overlay remains separate. Build, install,
 > rollout, and acceptance checks are in [BUILD.md](BUILD.md).
 
@@ -132,6 +132,14 @@ control results are parsed using the outer Boolean `success` field, including wh
 legacy unquoted keys, on both xScal and ZFE. Nested or message-body `success` text cannot enable
 the tab. Native acceptance may mean a queued send; it is not proof of relay delivery. Validate
 actual room binding, history and leave/join behavior in-game on each extender.
+
+v2.10.58 adds map player markers and public-team members and sends up to 24 names. A correlated
+streamed confirmation now gates SERVER, clears old-room rows, and expires after 60 seconds.
+New roster sessions receive new room identities. Main-menu state resets the session; stale
+confirmations, messages from a different room, and outgoing sends to an obsolete room are rejected.
+See [Server session binding](../../../docs/overlay/zfe/native-chat-relay/server-session-binding.md)
+for the protocol and the limits of inferring server membership from HUD rosters.
+
 Clearing server
 rows clears their replay IDs as well, so rejoining can restore those messages. Static message IDs
 remain remembered across transitions; reconnecting resets native event IDs. Unchanged empty

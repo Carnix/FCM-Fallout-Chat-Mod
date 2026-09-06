@@ -387,14 +387,15 @@ class TestFcmNativeApi {
         for (body in ["FCMCTL/1/ROSTER:alice|bob", "FCMCTL/1/LEAVE",
                 "FCMCTL/1/ROSTER:carol", "FCMCTL/1/RESYNC", "FCMCTL/1/LEAVE",
                 "FCMCTL/1/WORLD:world-two", "server message"]) {
-            var payload:String = haxe.Json.stringify({channel: "server", body: body});
+            var target = body == "server message" ? "FCMROOM/1;r:test-room" : "FCMSESSION/1;test-session";
+            var payload:String = haxe.Json.stringify({channel: "server", body: body, targetUserId: target});
             zApi.call("chat.v1.sendMessage", payload);
             xApi.call("chat.v1.sendMessage", payload);
             check("ZFE preserves SERVER payload " + body,
                 zCalls[zCalls.length - 1] == "chat.v1.sendMessage|" + payload);
             var forwarded:Dynamic = haxe.Json.parse(xCalls[xCalls.length - 1].substr("sendMessage|".length));
             check("xScal preserves SERVER object " + body,
-                forwarded.channel == "server" && forwarded.body == body);
+                forwarded.channel == "server" && forwarded.body == body && forwarded.targetUserId == target);
         }
 
         if (failures > 0) Sys.exit(1);

@@ -765,6 +765,13 @@ describe('worldIdService', () => {
     await clearWorldId('user-abc');
     expect(redisMock.del).toHaveBeenCalledWith('relay:world:user-abc');
   });
+
+  test('membership mutations propagate storage failure instead of acknowledging a binding', async () => {
+    redisMock.set.mockRejectedValueOnce(new Error('storage unavailable'));
+    await expect(setWorldId('user-abc', 'new-world')).rejects.toThrow('storage unavailable');
+    redisMock.del.mockRejectedValueOnce(new Error('storage unavailable'));
+    await expect(clearWorldId('user-abc')).rejects.toThrow('storage unavailable');
+  });
 });
 
 // ── upgradeRouter + relayHandler integration ──────────────────────────────────
@@ -2685,6 +2692,55 @@ describe('roster-derived world rooms', () => {
     const res = await sendRaw(a, makeRosterBody(a.rawId, []));
     expect(res).toMatchObject({ success: true, messageId: expect.any(String) });
     expect(res.messageId).not.toBe('');
+  });
+
+  test('leaving and joining a solo world does not reuse the old server history', async () => {
+    const a = await registerAndLink('SoloHop', 'fcm-solo-hop');
+    await sendRaw(a, makeRosterBody(a.rawId, []));
+    const firstRoom = _worldStore[`relay:world:${a.rawId}`];
+    expect(firstRoom).toBeTruthy();
+    expect(await sendRaw(a, 'old world only')).toMatchObject({ success: true });
+    await sendRaw(a, makeRosterBody(a.rawId, []));
+    expect(_worldStore[`relay:world:${a.rawId}`]).toBe(firstRoom);
+    await sendRaw(a, 'FCMCTL/1/LEAVE');
+    await sendRaw(a, makeRosterBody(a.rawId, []));
+    expect(_worldStore[`relay:world:${a.rawId}`]).not.toBe(firstRoom);
+    const { ws, msgs } = await connectWs(srv.port);
+    await waitForMsg(ws, msgs, () => send(ws, {op:'subscribe', token:a.token, cursor:0}));
+    await new Promise((r) => setTimeout(r, 80));
+    expect(msgs.some((m) => m.event?.body === 'old world only')).toBe(false);
+    ws.close();
+  });
+
+  test('stream confirms the requesting HUD session before server history, even for an empty room', async () => {
+    const a = await registerAndLink('StreamBind', 'fcm-stream-bind');
+    const {ws, msgs} = await connectWs(srv.port);
+    await waitForMsg(ws, msgs, () => send(ws, {op:'subscribe', token:a.token, cursor:0}));
+    const bind = async (requestId) => {
+      const rpc = await connectWs(srv.port);
+      const result = await waitForMsg(rpc.ws, rpc.msgs, () => send(rpc.ws,
+        {op:'send', token:a.token, channel:'server', targetUserId:`FCMSESSION/1;${requestId}`, body:makeRosterBody(a.rawId, [])}));
+      rpc.ws.close();
+      expect(result.success).toBe(true);
+      await new Promise((r) => setTimeout(r, 60));
+    };
+    await bind('first');
+    const firstRoom = _worldStore[`relay:world:${a.rawId}`];
+    expect(msgs.some((m) => m.event?.body === `FCMCTL/1/SERVER-READY:first|${firstRoom}`)).toBe(true);
+    await sendRaw(a, 'current room history');
+    const from = msgs.length;
+    await bind('first');
+    const replay = msgs.slice(from).filter((m) => m.op === 'event');
+    expect(replay[0].event.body).toBe(`FCMCTL/1/SERVER-READY:first|${firstRoom}`);
+    expect(replay.some((m) => m.event?.body === 'current room history')).toBe(true);
+    await bind('second'); // fresh HUD session, even when LEAVE could not be sent
+    expect(_worldStore[`relay:world:${a.rawId}`]).not.toBe(firstRoom);
+    const stale = await connectWs(srv.port);
+    const rejected = await waitForMsg(stale.ws, stale.msgs, () => send(stale.ws,
+      {op:'send', token:a.token, channel:'server', targetUserId:`FCMROOM/1;${firstRoom}`, body:'must not cross rooms'}));
+    expect(rejected).toMatchObject({success:false, error:{code:'invalid_channel'}});
+    stale.ws.close();
+    ws.close();
   });
 
   test('mutual sighting groups users into one room; unsighted user is isolated', async () => {

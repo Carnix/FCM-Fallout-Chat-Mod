@@ -29,12 +29,13 @@ if static history is absent or the queue reports loss. A normal static snapshot 
 SERVER replay IDs reset with SERVER rows on leave; static IDs remain remembered across world
 changes. An accepted recovery restarts the bounded drain and forces the next roster/world bind.
 
-Widget v2.10.57 uses the same SERVER control-response parser for both providers. It accepts
-whitespace and legacy unquoted keys, but only an outer Boolean `success:true`; nested success
-fields and message text cannot enable SERVER. Native acceptance can mean a queued command,
-so it does not establish end-to-end delivery. Adapter tests cover roster/world binds, repeated
-leaves, RESYNC and SERVER sends on both providers; live leave/join testing on each extender
-is still required to verify its native transport and HUD data callbacks.
+Widget v2.10.58 waits for a correlated `FCMCTL/1/SERVER-READY` event from the relay before
+showing SERVER or admitting its rows. Native queued success does not enable the tab. HUD
+observations now include map player markers and public-team members (up to 24 names), and
+main-menu state clears membership. Roster-derived rooms use an expiring session identity, so
+leaving and joining a solo world cannot replay the previous solo room's history. See
+[Server session binding](native-chat-relay/server-session-binding.md) for wire fields, failure
+behavior, the inference limits, and the required two-player validation.
 
 ## Provider paths and automatic detection
 

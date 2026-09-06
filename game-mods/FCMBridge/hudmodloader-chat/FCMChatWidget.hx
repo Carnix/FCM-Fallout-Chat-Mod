@@ -152,7 +152,7 @@ class FCMChatWidget extends MovieClip {
     // 2.10.0 is the first build that reports clientVersion to the relay. The relay
     // treats "no version reported" as "oldest possible client" and gates any new wire
     // field on this, so the version bump IS the capability signal.
-    static inline var VERSION:String  = "2.10.57"; // provider-independent server control response parsing
+    static inline var VERSION:String  = "2.10.58"; // confirmed session binding and expanded HUD world roster
     static inline var SETTINGS_PATH:String = "settings.ini";
     // This is a top-level ZFE command, not a relay operation. ZFE owns the DPAPI/local auth file
     // and must clear it; the SWF is not allowed to write arbitrary files from the HUD domain.
@@ -300,7 +300,7 @@ class FCMChatWidget extends MovieClip {
     // Server controls use the synchronous native RPC surface. Do not retry a rejected or
     // timed-out control on every 5s world tick; older ZFE builds can block the HUD for the
     // full socket timeout while the relay is unavailable or the account is still unlinked.
-    static inline var ROSTER_RETRY_MS:Float = 60000;
+    static inline var ROSTER_RETRY_MS:Float = 10000;
 
     // ── Config (FcmConfig — parsed from Data/FCMChat.ini; see FcmConfig.hx) ─────
     var _cfg:FcmConfig = new FcmConfig();
@@ -409,6 +409,8 @@ class FCMChatWidget extends MovieClip {
     // relay acknowledges that request.
     var _inWorld:Bool            = false;
     var _serverSessionReady:Bool = false;
+    var _serverSession:FcmServerSession = new FcmServerSession();
+    var _serverAtMainMenu:Bool = false;
     var _serverSessionError:String = "";
     // History resync is a send operation and must wait until xScal's async
     // subscriber has reached an authenticated state.
@@ -2468,7 +2470,8 @@ class FCMChatWidget extends MovieClip {
             zfeLog("warn", "server", "ordinary send blocked; session not ready");
             return;
         }
-        var payload:String = '{"channel":"' + jsonEscape(slug) + '","targetUserId":"","body":"' + jsonEscape(raw) + '"}';
+        var serverTarget = slug == "server" ? "FCMROOM/1;" + _serverSession.room : "";
+        var payload:String = '{"channel":"' + jsonEscape(slug) + '","targetUserId":"' + jsonEscape(serverTarget) + '","body":"' + jsonEscape(raw) + '"}';
         zfeLog("info", "send", "payload ch=" + slug + " len=" + raw.length);
         try {
             // sendMessage is chat.v1.sendMessage ONLY — never bare. Bare hits the
@@ -3458,7 +3461,7 @@ class FCMChatWidget extends MovieClip {
         forceReconnect("poll failure threshold reached");
     }
 
-    function parseAndRenderEvents(rs:String):Int {
+    function parseAndRenderEvents(rs:String, allowServerDeferral:Bool = true):Int {
         var evStart:Int = FcmWire.findEventsArrayStart(rs);
         if (evStart < 0) return 0;
 
@@ -3527,6 +3530,25 @@ class FCMChatWidget extends MovieClip {
             if (supporterStar) wireStarCount++;
             if (starColor.length > 0) wireStarColorCount++;
             var body:String         = extractJsonString(obj, "body");
+            if (rawChannel == "system" && senderUserId == "system"
+                    && StringTools.startsWith(body, FcmServerSession.READY_PREFIX)) {
+                updateCursorFromEvent(obj);
+                var previousRoom = _serverSession.room;
+                if (_inWorld && !_serverAtMainMenu && _serverSession.accept(body, flash.Lib.getTimer())) {
+                    if (previousRoom != _serverSession.room) clearServerRecords("confirmed room changed");
+                    setServerSessionReady(true, "");
+                    var pending = _serverSession.takePending();
+                    if (pending.length > 0) parseAndRenderEvents('{"events":[' + pending.join(",") + ']}', false);
+                    startServerHistoryDrain();
+                    zfeLog("info", "world", "relay confirmed room=" + _serverSession.room);
+                } else zfeLog("info", "world", "ignored stale server confirmation");
+                continue;
+            }
+            if (channel == "server" && !_serverSessionReady) {
+                if (allowServerDeferral) _serverSession.defer(obj);
+                updateCursorFromEvent(obj);
+                continue; // Validate queued rows against the next confirmed room before rendering.
+            }
             if (rawChannel == "system" && senderUserId == "system" && body == "FCMCTL/1/HISTORY-DONE") {
                 updateCursorFromEvent(obj);
                 _history.finish();
@@ -3541,6 +3563,12 @@ class FCMChatWidget extends MovieClip {
             var messageId:String    = extractJsonString(obj, "messageId");
             var transportMessageId:String = FcmConfig.hudTransportMessageId(hudTransport);
             if (transportMessageId.length > 0) messageId = transportMessageId;
+            if (channel == "server" && !_serverSession.acceptsMessage(messageId)) {
+                if (allowServerDeferral) _serverSession.defer(obj);
+                updateCursorFromEvent(obj);
+                if (!allowServerDeferral) zfeLog("info", "world", "discarded server row outside confirmed room");
+                continue;
+            }
             var evId:Int            = extractJsonInt(obj, "id");
             if (senderUserId.length > 0) wireSenderIdCount++;
             if (messageId.length > 0) wireMessageIdCount++;
@@ -3842,9 +3870,8 @@ class FCMChatWidget extends MovieClip {
     function applyServerControlResult(raw:String, source:String, readyOnSuccess:Bool = true):Bool {
         var ok:Bool = FcmWire.controlAccepted(raw);
         if (ok) {
-            setServerSessionReady(readyOnSuccess, "");
-            if (readyOnSuccess) startServerHistoryDrain();
-            zfeLog("info", "world", source + " control acknowledged");
+            if (!readyOnSuccess) setServerSessionReady(false, "");
+            zfeLog("info", "world", source + " control accepted by native transport; awaiting relay confirmation");
             return true;
         }
         var message:String = extractJsonString(raw, "message");
@@ -3985,16 +4012,16 @@ class FCMChatWidget extends MovieClip {
         if (_needsLink || _authState != "authenticated") return;
         var now:Float = flash.Lib.getTimer();
         _worldPollPhase = "roster-snapshots";
+        if (_serverSessionReady && !_serverSession.fresh(now)) {
+            setServerSessionReady(false, "server confirmation expired");
+            clearServerRecords("server confirmation expired");
+            _lastRosterSentAt = 0;
+        }
         var names:Array<String> = freshRosterNames();
         _worldPollPhase = "roster-binding";
         var wasInWorld:Bool = _inWorld;
-        // In-world = we are observing the HUD's nearby-player surfaces. (These publish
-        // only while loaded into a world; an empty server still counts once any
-        // provider has published at least once — tracked via _worldPollCount heuristics
-        // kept simple: names OR a recent observation window.)
-        // A received PlayerListData update is an approved HUD-layer indication that the
-        // world roster surface is live, even for a solo/empty world. It expires with the
-        // same freshness window as names, so menu/stale data cannot keep SERVER alive.
+        // Main-menu state is checked before reading these cached HUD observations.
+        // An empty roster permits a solo session; it does not prove an empty world.
         var rosterObserved:Bool = hasFreshRosterObservation(now);
         _inWorld = (names.length > 0 || rosterObserved);
         if (_inWorld) {
@@ -4004,7 +4031,7 @@ class FCMChatWidget extends MovieClip {
             // the same room key and keep this subscriber on the previous server feed. Leave
             // first, clear local ephemeral rows, then let the next tick submit the new roster;
             // the fresh bind triggers the existing server-history backfill.
-            if (_serverSessionReady
+            if ((_serverSessionReady || _lastRosterSentAt > 0)
                     && (_rosterBoundaryPending
                         || FcmCommand.shouldRebindRosterSession(_lastRosterSent, namesField))) {
                 zfeLog("info", "world", "roster session changed; clearing feed and rebinding");
@@ -4014,6 +4041,7 @@ class FCMChatWidget extends MovieClip {
                 _lastRosterSent = "";
                 _rosterBoundaryPending = false;
                 sendWorldLeaveControl();
+                resetRosterObservation("roster boundary");
                 return;
             }
             var retrySuppressed:Bool = !_serverSessionReady && _lastRosterSentAt > 0
@@ -4024,7 +4052,7 @@ class FCMChatWidget extends MovieClip {
                 _lastRosterSentAt = now;
                 _lastRosterSent = namesField;
                 var body:String = WORLD_ROSTER_PREFIX + namesField;
-                var payload:String = '{"channel":"server","targetUserId":"","body":"' + jsonEscape(body) + '"}';
+                var payload:String = '{"channel":"server","targetUserId":"' + _serverSession.target() + '","body":"' + jsonEscape(body) + '"}';
                 try {
                     var raw:String = Std.string(_api.call("chat.v1.sendMessage", payload));
                     applyServerControlResult(raw, "roster");
@@ -4051,6 +4079,20 @@ class FCMChatWidget extends MovieClip {
         _worldPollCount++;
         _worldPollPhase = "subscribe";
         subscribeRoster();
+        if (FcmRoster.isMainMenu(uiData(getBSUIData(_rosterManager, "MenuStackData")))) {
+            if (!_serverAtMainMenu) {
+                _serverAtMainMenu = true;
+                _inWorld = false;
+                clearServerRecords("main menu");
+                setServerSessionReady(false, "");
+                sendWorldLeaveControl();
+                resetRosterObservation("main menu");
+                _lastRosterSentAt = 0;
+                _lastRosterSent = "";
+            }
+            return;
+        }
+        _serverAtMainMenu = false;
         // AccountInfoData can be republished during world transitions. Re-read it for local
         // state only; refreshDisplayName never enters the native relay connection path.
         _worldPollPhase = "identity";
@@ -4103,7 +4145,7 @@ class FCMChatWidget extends MovieClip {
     function sendWorldIdControl(worldId:String):Void {
         if (_api == null || !_connected) return;
         var body:String = WORLD_CTRL_PREFIX + worldId;
-        var payload:String = '{"channel":"server","targetUserId":"","body":"' + jsonEscape(body) + '"}';
+        var payload:String = '{"channel":"server","targetUserId":"' + _serverSession.target() + '","body":"' + jsonEscape(body) + '"}';
         try {
             applyServerControlResult(Std.string(_api.call("chat.v1.sendMessage", payload)), "worldId");
         } catch (e:Dynamic) {
@@ -4743,7 +4785,9 @@ class FCMChatWidget extends MovieClip {
     /** Clear provider snapshots at a session boundary; stale names must never seed a new world. */
     function resetRosterObservation(reason:String, detach:Bool = false):Void {
         if (detach) unsubscribeRoster();
+        setServerSessionReady(false, "");
         _rosterSnapshots = new FcmRoster();
+        _serverSession.begin(Std.string(flash.Lib.getTimer()) + "-" + Std.string(Std.random(1000000000)));
         _rosterBoundaryPending = false;
         _lastRosterObservationAt = -ROSTER_FRESH_MS;
         _rosterLogCount = 0;
@@ -4771,7 +4815,7 @@ class FCMChatWidget extends MovieClip {
             mgr.Subscribe("PlayerListData", playerCallback);
             _rosterCallbacks.set("PlayerListData", playerCallback);
             _rosterCallbackKeys.push("PlayerListData");
-            for (k in ["TeamMarkers", "PartyMenuList", "VoiceChatAreaData"]) {
+            for (k in ["TeamMarkers", "PartyMenuList", "VoiceChatAreaData", "MapMenuData", "PublicTeamsData"]) {
                 var key:String = k;
                 try {
                     var auxCallback:Dynamic = function(evt:Dynamic):Void {
@@ -4783,7 +4827,7 @@ class FCMChatWidget extends MovieClip {
                 } catch (e:Dynamic) {}
             }
             _rosterSubscribed = true;
-            zfeLog("info", "roster", "subscribed to PlayerListData + TeamMarkers/PartyMenuList/VoiceChatAreaData");
+            zfeLog("info", "roster", "subscribed to player, team, voice, map and public-team data");
         } catch (e:Dynamic) {
             unsubscribeRoster(mgr);
             zfeLog("warn", "roster", "Subscribe threw: " + Std.string(e));
@@ -4806,7 +4850,20 @@ class FCMChatWidget extends MovieClip {
 
     /** Record a replaceable nearby-player snapshot (TeamMarkers / VoiceChat / PlayerList). */
     function collectRoster(key:String, d:Dynamic):Void {
+        if (_serverAtMainMenu) return;
         var now:Float = flash.Lib.getTimer();
+        if (key == "MapMenuData" || key == "PublicTeamsData") {
+            var rawRows:Dynamic = uiField(d, key == "MapMenuData" ? "MarkerData" : "publicTeams");
+            if (rawRows == null || uiField(rawRows, "length") == null) return;
+            var names = FcmRoster.readNames(key, d, _displayName);
+            var clean:Array<String> = [];
+            for (name in names) {
+                var value = bareName(name);
+                if (value.length > 0 && value.toLowerCase() != _displayName.toLowerCase()) clean.push(value);
+            }
+            storeRosterSnapshot(key, clean, now);
+            return;
+        }
         var arr:Dynamic = null;
         if (key == "TeamMarkers") { try { arr = d.Markers; } catch (e:Dynamic) {} }
         else if (key == "VoiceChatAreaData") { try { arr = d.participants; } catch (e:Dynamic) {} }
@@ -4850,14 +4907,20 @@ class FCMChatWidget extends MovieClip {
             zfeLog("warn", "roster", key + " skipped native entries=" + skippedEntries);
         }
         snapshot.sort(function(a, b) return (a < b) ? -1 : (a > b ? 1 : 0));
+        storeRosterSnapshot(key, snapshot, now);
+    }
+
+    function storeRosterSnapshot(key:String, snapshot:Array<String>, now:Float):Void {
         var previousSnapshot:Array<String> = _rosterSnapshots.replace(key, snapshot, now);
+        if (previousSnapshot == null || previousSnapshot.join("|") != snapshot.join("|"))
+            zfeLog("info", "roster", key + " snapshot names=" + snapshot.length);
         // Compare this provider with its own previous value, not the cross-provider union.
         // An unchanged empty auxiliary list is normal and must not clear the feed repeatedly.
         // During a world hop the primary roster surface can already be completely replaced while an auxiliary provider still contains
         // one old name. Remember the disjoint/empty provider snapshot and let tickRoster perform
         // a real LEAVE before the next ROSTER bind.
         var snapshotField:String = snapshot.join("|");
-        if (_serverSessionReady && previousSnapshot != null
+        if ((_serverSessionReady || _lastRosterSentAt > 0) && previousSnapshot != null
                 && FcmCommand.shouldRebindRosterSession(previousSnapshot.join("|"), snapshotField)) {
             _rosterBoundaryPending = true;
             zfeLog("info", "roster", key + " marks a new session boundary names=" + snapshot.length);
@@ -4947,7 +5010,7 @@ class FCMChatWidget extends MovieClip {
     /** Pull the current UI-layer provider values because Subscribe() does not invoke callbacks. */
     function refreshRosterSnapshots(mgr:Dynamic):Void {
         if (mgr == null) return;
-        for (key in ["PlayerListData", "TeamMarkers", "PartyMenuList", "VoiceChatAreaData"]) {
+        for (key in ["PlayerListData", "TeamMarkers", "PartyMenuList", "VoiceChatAreaData", "MapMenuData", "PublicTeamsData"]) {
             try {
                 var provider:Dynamic = getBSUIData(mgr, key);
                 var data:Dynamic = uiData(provider);

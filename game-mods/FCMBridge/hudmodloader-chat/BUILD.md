@@ -1,6 +1,6 @@
 # FCMChatWidget build, install, and verification
 
-> **Widget version:** 2.10.57. This is the optional in-game HUD-mod track. It is
+> **Widget version:** 2.10.58. This is the optional in-game HUD-mod track. It is
 > never installed or modified by the desktop overlay.
 
 ## What it does
@@ -48,9 +48,14 @@ fallback when static history is absent or the native queue reports loss. SERVER 
 do not suppress recovery; a normal static snapshot does. Accepted recovery restarts the bounded
 drain and forces the next roster/world bind, which releases deferred current-room history.
 
-After the bind acknowledgement, the widget drains the server snapshot every 150 ms until two
+After the correlated streamed room confirmation, the widget drains the server snapshot every 150 ms until two
 consecutive empty polls (hard cap: eight attempts), covering xScal's delayed subscriber delivery
 without waiting for the normal five-second poll.
+
+v2.10.58 also reads map player markers and public-team members, resets the room nonce at
+world boundaries, and keeps SERVER hidden until the relay confirms that nonce. Native queued
+success alone never enables the tab. See [Server session binding](../../../docs/overlay/zfe/native-chat-relay/server-session-binding.md)
+for deployment order, metadata fields, expiry, and roster-derived mapping limits.
 
 The v2.10.54 widget explicitly pulls the cached values for `PlayerListData`,
 `TeamMarkers`, `PartyMenuList`, and `VoiceChatAreaData` after subscribing. The upstream
@@ -404,7 +409,7 @@ staff validation on every request; the HUD permission is only a visibility hint.
 
 ## In-game acceptance checklist
 
-1. With HUDModLoader and ZFE or xScal loaded, the startup log identifies `chatv1-widget-v2.10.57`. If
+1. With HUDModLoader and ZFE or xScal loaded, the startup log identifies `chatv1-widget-v2.10.58`. If
    `AccountInfoData` is late, the widget waits and retries. The sender label and a newly sent
    message use the exact public Fallout 76 account handle, including punctuation; neither
    `Wanderer` nor the local character name is used for the relay handshake.
