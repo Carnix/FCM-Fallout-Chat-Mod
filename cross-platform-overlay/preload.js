@@ -74,6 +74,8 @@ contextBridge.exposeInMainWorld('relayBridge', {
   linkDiscord: () => ipcRenderer.send('discord:link'),
   // Steam OpenID: link the desktop install to a verified SteamID64.
   linkSteam: () => ipcRenderer.send('steam:link'),
+  // Revoke the server-side Discord identity and the active overlay session.
+  unlinkDiscord: () => ipcRenderer.invoke('discord:unlink'),
   openExternal: (url) => ipcRenderer.send('shell:open-external', url),
   // Surface a renderer-side diagnostic line into the main-process log file.
   logDiag: (msg) => ipcRenderer.send('shell:diag', msg),

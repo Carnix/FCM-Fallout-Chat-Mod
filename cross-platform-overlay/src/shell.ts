@@ -1360,18 +1360,39 @@ function buildSettingsPanel() {
         refreshStatusBtn.removeAttribute('disabled');
       }, 3000);
     });
+    const unlinkFeedback = el('span', { className: 'ss-note ss-discord-unlink-feedback' });
     const unlinkBtn = el('button', { className: 'ss-fbtn ss-discord-unlink' }, 'UNLINK');
-    unlinkBtn.addEventListener('click', () => {
-      if (!confirm('Unlink your Discord account from this overlay?\n\nNote: this only clears the local display — a full server-side unlink is not yet supported.')) return;
-      // TODO: call a backend unlink endpoint when one exists (FR: DELETE /api/users/me/discord).
-      // For now this only clears the local state so the panel shows "Not linked".
-      commit({ discordLinked: false, discordName: '' });
+    unlinkBtn.addEventListener('click', async () => {
+      if (!confirm('Unlink your Discord account from this overlay?\n\nYou will be signed out and returned to the login screen.')) return;
+      unlinkBtn.disabled = true;
+      unlinkBtn.textContent = '…';
+      unlinkFeedback.textContent = 'Signing out…';
+      const result = await window.relayBridge.unlinkDiscord?.();
+      if (!result?.ok) {
+        unlinkBtn.disabled = false;
+        unlinkBtn.textContent = 'UNLINK';
+        unlinkFeedback.textContent = result?.message || 'Could not unlink Discord. Please try again.';
+        return;
+      }
+
+      // The main process has already revoked the server session and sent the
+      // renderer to the provider login wall. Keep the native settings view in
+      // sync, then close it so the login screen is immediately visible.
+      commit({
+        discordLinked: false,
+        discordName: '',
+        discordUsername: '',
+        discordDisplayName: '',
+        discordAvatarUrl: '',
+      });
       renderDiscordStatus();
       renderProfile();
+      closeSettings();
     });
     dBtns.append(linkBtn, relinkBtn, refreshStatusBtn, unlinkBtn);
+    s.append(unlinkFeedback);
     s.append(dBtns);
-    hint(s, 'Linking opens Discord in your browser to authorise this install. Click REFRESH STATUS after returning to update the panel. Your chat display name comes from your FO76 name above, or your Discord display name.');
+    hint(s, 'Linking opens Discord in your browser to authorise this install. Click REFRESH STATUS after returning to update the panel. Unlinking signs you out and returns you to the provider login screen. Your chat display name comes from your FO76 name above, or your Discord display name.');
 
     window.relayBridge.onDiscordStatus?.((status) => {
       commit({ discordLinked: status.linked, discordName: status.discordName || '' });

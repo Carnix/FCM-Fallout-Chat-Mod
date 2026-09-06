@@ -890,6 +890,8 @@ function setMouseIgnore(ignore, forward) {
 // fully interactive so slider drags etc. work regardless of click-through.
 let modalInteractive = false;
 let sessionToken = null;
+let authGeneration = 0;
+let providerLoginRequested = false;
 let isQuitting = false;
 // Once-per-session guard: prevents the update toast from re-firing on WS reconnects
 // within the same app launch. Reset to false on each app start.
@@ -2583,6 +2585,7 @@ ipcMain.on('shell:diag', (_evt, msg) => {
 ipcMain.on('discord:link', () => {
   const st = loadState();
   if (!st || !st.installToken) return;
+  providerLoginRequested = true;
   const linkUrl = `${RELAY_HTTP}/auth/discord/link?installToken=${encodeURIComponent(st.installToken)}`;
   // The backend's success callback lands on /auth/discord/link/callback (any status).
   const callbackPath = '/auth/discord/link/callback';
@@ -2678,6 +2681,7 @@ ipcMain.on('discord:link', () => {
 ipcMain.on('steam:link', () => {
   const st = loadState();
   if (!st || !st.installToken) return;
+  providerLoginRequested = true;
   const linkUrl = `${RELAY_HTTP}/auth/steam/link?installToken=${encodeURIComponent(st.installToken)}`;
   const callbackPath = '/auth/steam/callback';
 
@@ -2833,10 +2837,12 @@ ipcMain.handle('overlay:qa-login', async () => { startQaLogin(); return { ok: tr
 // the renderer the status is unavailable (it keeps the last known link state)
 // rather than silently dropping the result.
 function refreshDiscordStatus(attempt = 0) {
+  const requestGeneration = authGeneration;
   const st = loadState();
   if (!st || !st.installToken) return;
   const MAX_STATUS_ATTEMPTS = 4;
   const retry = (why) => {
+    if (requestGeneration !== authGeneration) return;
     if (attempt + 1 >= MAX_STATUS_ATTEMPTS) {
       diag('[discord-status] giving up after ' + MAX_STATUS_ATTEMPTS + ' attempts (' + why + ')');
       sendToRenderer('relay:discord-status', { linked: !!st.discordLinked, discordName: st.discordName || '', error: 'status-unavailable' });
@@ -2855,6 +2861,7 @@ function refreshDiscordStatus(attempt = 0) {
       let data = '';
       res.on('data', (c) => (data += c));
       res.on('end', () => {
+        if (requestGeneration !== authGeneration) return;
         try {
           const json = JSON.parse(data);
           const d = json?.data || {};
@@ -2878,7 +2885,11 @@ function refreshDiscordStatus(attempt = 0) {
           // status check (throttled to 1/min). Each new session caused the backend
           // to close the existing relay WS connection, producing the "blank chat
           // after return-to-game" symptom (WS dies → user must hit Refresh).
-          if (linked && !st.discordLinked) {
+          // A logout can leave another provider (usually Steam) linked while
+          // clearing the active session. In that case a successful status poll
+          // must still re-register, even though the local provider flag was
+          // already true before logout.
+          if (linked && (!st.discordLinked || (providerLoginRequested && !sessionToken))) {
             const fo76 = (typeof d.username === 'string' && d.username) ? d.username : null;
             if (fo76) saveState({ username: fo76 });
             if (d.displayName) saveState({ displayName: d.displayName });
@@ -2887,7 +2898,9 @@ function refreshDiscordStatus(attempt = 0) {
             const st2 = loadState();
             if (clientKey && st2 && st2.installToken) {
               registerForToken(st2, clientKey).then((r) => {
+                if (requestGeneration !== authGeneration) return;
                 sessionToken = r.token;
+                providerLoginRequested = false;
                 flushPendingWsOpens();
                 saveState({ displayName: r.displayName || st2.displayName, discordLinked: !!r.discordLinked, discordName: r.discordName || discordName, steamLinked: !!r.steamLinked });
                 if (r.username != null) saveState({ username: r.username });
@@ -2913,6 +2926,7 @@ function refreshDiscordStatus(attempt = 0) {
                   avatarUrl: r.avatarUrl || loadState()?.avatarUrl || null,
                 });
               }).catch((e) => {
+                if (requestGeneration !== authGeneration) return;
                 // The link succeeded on the backend (relay:discord-status already
                 // told the renderer), but rebinding our SESSION to the reclaimed
                 // account failed. Don't leave the user in limbo — recover the
@@ -2935,14 +2949,110 @@ function refreshDiscordStatus(attempt = 0) {
 }
 ipcMain.on('discord:refresh-status', () => refreshDiscordStatus(0));
 
+// Discord unlink is an authenticated, destructive identity action. The
+// backend revokes the current session and evicts relay subscribers; this IPC
+// handler then clears the native session state and deliberately shows the
+// provider login wall, even if the overlay had previously been hidden.
+function requestDiscordUnlink() {
+  const token = sessionToken;
+  if (!token) {
+    return Promise.resolve({ ok: false, reason: 'not-authenticated', message: 'You are already signed out.' });
+  }
+
+  return new Promise((resolve) => {
+    const url = new URL(RELAY_HTTP + '/api/link/provider/discord');
+    const headers = {
+      'Content-Type': 'application/json',
+      'X-Auth-Token': token,
+      'X-Client-Version': APP_VERSION,
+      'User-Agent': APP_UA,
+      'Origin': RELAY_HTTP,
+    };
+    if (!app.isPackaged) headers['X-Overlay-Dev'] = '1';
+    const req = httpModule(url).request(
+      {
+        hostname: url.hostname,
+        port: url.port || undefined,
+        path: url.pathname,
+        method: 'DELETE',
+        headers,
+      },
+      (res) => {
+        let data = '';
+        res.on('data', (chunk) => (data += chunk));
+        res.on('end', () => {
+          let json = null;
+          try { json = JSON.parse(data); } catch { /* use the generic message */ }
+          if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300 && json?.data?.success) {
+            resolve({ ok: true });
+            return;
+          }
+          const message = json?.detail || json?.message || json?.error || `Unlink failed (HTTP ${res.statusCode || 0})`;
+          resolve({ ok: false, reason: 'server', message: String(message).slice(0, 240) });
+        });
+      },
+    );
+    req.on('error', (err) => resolve({ ok: false, reason: 'network', message: err.message }));
+    req.setTimeout(15_000, () => req.destroy(new Error('Unlink request timed out.')));
+    req.end();
+  });
+}
+
+function finishDiscordUnlink() {
+  authGeneration += 1;
+  providerLoginRequested = false;
+  sessionToken = null;
+  forceVisible = false;
+
+  // Close renderer-proxied sockets before the renderer is moved to the login
+  // wall. Closing both CONNECTING and OPEN sockets prevents a stale socket from
+  // carrying the old token after a quick provider re-login.
+  while (pendingWsOpens.length > 0) {
+    const id = pendingWsOpens.shift();
+    sendToRenderer('proxy:ws:close', { id, code: 4001, reason: 'Discord account unlinked' });
+  }
+  for (const sock of relaySockets.values()) {
+    try { sock.close(4001, 'Discord account unlinked'); } catch { /* closing */ }
+  }
+  relaySockets.clear();
+  relaySendBuffers.clear();
+
+  saveState(overlayCore.buildDiscordUnlinkStatePatch());
+  userRole = null;
+  rebuildTray();
+  chatActive = false;
+  userHidden = false;
+  if (collapsed || collapseAnim) {
+    expandFromHeader(false);
+    sendToRenderer('overlay:force-expand', true);
+  }
+  setClickThrough(false);
+  showWindowInactive();
+  sendToRenderer('relay:status', {
+    state: 'auth_required',
+    authRequired: true,
+    requiredProviders: ['discord', 'steam'],
+    message: 'Discord account unlinked. Sign in again to continue.',
+  });
+}
+
+ipcMain.handle('discord:unlink', async () => {
+  const result = await requestDiscordUnlink();
+  if (!result.ok) return result;
+  finishDiscordUnlink();
+  return result;
+});
+
 // Steam link status refresh: mirrors the Discord post-link re-register path so
 // the overlay session is rebound immediately when a Steam callback reclaimed an
 // existing account onto this install token.
 function refreshSteamStatus(attempt = 0) {
+  const requestGeneration = authGeneration;
   const st = loadState();
   if (!st || !st.installToken) return;
   const MAX_STATUS_ATTEMPTS = 4;
   const retry = (why) => {
+    if (requestGeneration !== authGeneration) return;
     if (attempt + 1 >= MAX_STATUS_ATTEMPTS) {
       diag('[steam-status] giving up after ' + MAX_STATUS_ATTEMPTS + ' attempts (' + why + ')');
       sendToRenderer('relay:steam-status', { linked: !!st.steamLinked, steamLinked: !!st.steamLinked, error: 'status-unavailable' });
@@ -2960,6 +3070,7 @@ function refreshSteamStatus(attempt = 0) {
       let data = '';
       res.on('data', (c) => (data += c));
       res.on('end', () => {
+        if (requestGeneration !== authGeneration) return;
         try {
           const json = JSON.parse(data);
           const d = json?.data || {};
@@ -2968,13 +3079,15 @@ function refreshSteamStatus(attempt = 0) {
           saveState({ steamLinked: linked });
           sendToRenderer('relay:steam-status', { linked, steamLinked: linked });
 
-          if (linked && !wasLinked) {
+          if (linked && (!wasLinked || (providerLoginRequested && !sessionToken))) {
             if (d.displayName) saveState({ displayName: d.displayName });
             const clientKey = resolveAppClientKey();
             const st2 = loadState();
             if (clientKey && st2 && st2.installToken) {
               registerForToken(st2, clientKey).then((r) => {
+                if (requestGeneration !== authGeneration) return;
                 sessionToken = r.token;
+                providerLoginRequested = false;
                 flushPendingWsOpens();
                 saveState({
                   displayName: r.displayName || st2.displayName,
@@ -3003,6 +3116,7 @@ function refreshSteamStatus(attempt = 0) {
                   avatarUrl: r.avatarUrl || loadState()?.avatarUrl || null,
                 });
               }).catch((e) => {
+                if (requestGeneration !== authGeneration) return;
                 diag('[steam-status] post-link re-register failed: ' + String(e && e.message || e) + ' — recovering via startRelay()');
                 startRelay().catch(() => { /* startRelay surfaces its own errors */ });
               });
@@ -3188,6 +3302,7 @@ ipcMain.on('overlay:save-settings', (_evt, settings) => {
 // relay:status and schedule an auto-retry with a short backoff so the user sees
 // the retry UI rather than a silent failure. Backoff: 429 → 10 s, other → 5 s.
 async function startRelay(retryCount = 0) {
+  const requestGeneration = authGeneration;
   const clientKey = resolveAppClientKey();
   if (!clientKey) {
     sendToRenderer('relay:status', { state: 'error', message: 'No APP_CLIENT_KEY (set env or run from inside the repo).' });
@@ -3195,7 +3310,9 @@ async function startRelay(retryCount = 0) {
   }
   try {
     const { token, userId: regUserId, displayName, discordLinked, discordName, discordUsername, discordDisplayName, discordAvatarUrl, steamLinked, username: regUsername, userRole: role, avatarUrl: regAvatarUrl } = await registerForToken(loadState(), clientKey);
+    if (requestGeneration !== authGeneration) return;
     sessionToken = token;
+    providerLoginRequested = false;
     flushPendingWsOpens();
     diag('[relay] registered OK — displayName=' + (displayName || '(none)') + ' discordLinked=' + !!discordLinked + ' steamLinked=' + !!steamLinked + ' role=' + (role || 'user'));
     // Persist the resolved display name (may be FO76 name or Discord display name)

@@ -65,6 +65,16 @@ See [auth.md](./auth.md) for full details.
 
 `POST /api/users` applies `registerIpFloodLimiter` + `registerLimiter` + `authLimiter` in sequence. See `routes/users.ts`.
 
+## Provider links (`/api/link`)
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| DELETE | `/api/link/provider/:provider` | requireAuth | Unlink Steam/Nexus when another provider remains; Discord unlink also revokes the current overlay session and evicts its live relay connections |
+
+Discord unlink clears the Discord identity fields but preserves the FCM account and
+Discord-keyed entitlements. The caller is logged out and must complete provider sign-in
+again before the overlay can reconnect.
+
 ---
 
 ## Auth Routes (under `/api/auth`)

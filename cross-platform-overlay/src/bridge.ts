@@ -71,6 +71,8 @@ interface RelayBridge {
   setWindowOpacity?(v: number): void;
   linkDiscord?(): void;
   linkSteam?(): void;
+  /** Unlink Discord, revoke the active session, and return to the login wall. */
+  unlinkDiscord?(): Promise<{ ok: boolean; reason?: string; message?: string }>;
   openExternal?(url: string): void;
   /** Surface a renderer-side diagnostic line into the main-process log (main.log). */
   logDiag?(msg: string): void;

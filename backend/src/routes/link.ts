@@ -427,7 +427,9 @@ router.delete('/pairing-token', requireAuth, async (req: Request, res: Response,
 
 /**
  * DELETE /api/link/provider/:provider
- * Unlink a non-Discord provider. Refuses if it would leave the user with no providers.
+ * Unlink a provider. Discord unlink is deliberately a logout operation: the
+ * current overlay session is revoked and every live relay connection for the
+ * account is evicted before the response is returned.
  */
 router.delete('/provider/:provider', requireAuth, async (req: Request, res: Response, next) => {
   try {
@@ -435,9 +437,61 @@ router.delete('/provider/:provider', requireAuth, async (req: Request, res: Resp
     const provider = paramStr(req, 'provider');
 
     if (provider === 'discord') {
-      return next(
-        createError(400, 'Cannot unlink Discord via this endpoint. Use the account settings.'),
-      );
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { discordId: true, installToken: true },
+      });
+      if (!user?.discordId) return next(createError(404, 'Discord identity not linked.'));
+
+      // Keep the FCM account and its Discord-keyed entitlements/admin record,
+      // but remove the live identity so the next provider login is explicit.
+      await prisma.user.update({
+        where: { id: userId },
+        data: {
+          discordId: null,
+          discordUsername: null,
+          discordDisplayName: null,
+          discordAvatar: null,
+          discordAuthedAt: null,
+        },
+      });
+
+      // Session/cache cleanup is best-effort after the authoritative identity
+      // update. The relay eviction below ensures the current client is still
+      // forced back to the provider login wall if Redis or session-row cleanup
+      // is temporarily unavailable.
+      try {
+        const redis = await getRedisClient();
+        await redis.del(`discord_link:${user.installToken}`);
+        if (req.sessionToken) await redis.del(`session:${req.sessionToken}`);
+      } catch (sessionErr) {
+        logger.warn({ err: sessionErr, userId }, 'Discord unlink session/cache cleanup failed');
+      }
+      if (req.sessionToken) {
+        await prisma.session.delete({ where: { token: req.sessionToken } }).catch((sessionErr) => {
+          logger.warn({ err: sessionErr, userId }, 'Discord unlink database session cleanup failed');
+        });
+      }
+
+      try {
+        // Keep this late-bound: relayHandler imports the full chat stack and
+        // route initialization should not create an application import cycle.
+        const relay = require('../services/relay/relayHandler') as {
+          evictRelayUser: (linkedUserId: string, options: { code: string; message: string }) => Promise<number>;
+        };
+        await relay.evictRelayUser(userId, {
+          code: 'discord_unlinked',
+          message: 'Discord account unlinked. Sign in again to continue.',
+        });
+      } catch (relayErr) {
+        // The session has already been invalidated. A relay eviction failure
+        // must not turn a successful unlink into a misleading 500 response.
+        logger.warn({ err: relayErr, userId }, 'Discord unlink relay eviction failed');
+      }
+
+      logger.info({ userId }, 'Discord identity unlinked and overlay session revoked');
+      res.json({ data: { success: true, loggedOut: true } });
+      return;
     }
 
     // Steam is the canonical inline provider on users (rather than a

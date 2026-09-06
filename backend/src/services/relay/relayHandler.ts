@@ -530,7 +530,12 @@ function evictLocalRelayUser(linkedUserId: string, code: string, message: string
   for (const sub of subscribers) {
     if (sub.linkedUserId !== linkedUserId) continue;
     send(sub.ws, errEnvelope(code, message));
-    try { sub.ws.close(4002, code === 'user_kicked' ? 'Kicked' : 'Banned'); } catch { /* closing */ }
+    const closeReason = code === 'user_kicked'
+      ? 'Kicked'
+      : code === 'discord_unlinked'
+        ? 'Discord unlinked'
+        : 'Banned';
+    try { sub.ws.close(4002, closeReason); } catch { /* closing */ }
     subscribers.delete(sub);
     evicted++;
   }

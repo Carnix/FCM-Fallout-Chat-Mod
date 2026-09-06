@@ -76,6 +76,11 @@ opens the website `/link`, signs in with Discord, Nexus, or Steam, and redeems t
 shown by the HUD mod. Steam-only users receive basic chat access; dashboard and in-game
 moderation roles remain Discord-role gated.
 
+Unlinking Discord from Overlay Settings is a server-side account action, not just a local
+display reset. The backend clears the Discord identity, revokes the active overlay session,
+evicts live relay connections, and returns the overlay to its Steam/Discord provider login
+wall. The FCM account and its Discord-keyed entitlements are retained.
+
 ## Chat appearance in Settings
 
 **Settings → Appearance → Chat appearance** is the desktop equivalent of Profile →

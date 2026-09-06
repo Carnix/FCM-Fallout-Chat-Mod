@@ -7,6 +7,7 @@ import core from '../overlay-core.js';
 
 const {
   stateHasRealData,
+  buildDiscordUnlinkStatePatch,
   isCfChallenge,
   isSinglePrintableChar,
   resolveAppClientKey,
@@ -60,6 +61,20 @@ describe('stateHasRealData', () => {
     ['settings array (non-empty)', { settings: ['a'] }, true],
   ])('%s -> %s', (_label, input, expected) => {
     expect(stateHasRealData(input)).toBe(expected);
+  });
+});
+
+describe('buildDiscordUnlinkStatePatch', () => {
+  it('clears Discord-derived identity and role fields for the login wall', () => {
+    expect(buildDiscordUnlinkStatePatch()).toEqual({
+      discordLinked: false,
+      discordName: '',
+      discordUsername: '',
+      discordDisplayName: '',
+      discordAvatarUrl: '',
+      avatarUrl: '',
+      userRole: null,
+    });
   });
 });
 

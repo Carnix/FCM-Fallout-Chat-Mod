@@ -112,6 +112,15 @@ On callback:
 
 The overlay polls `GET /api/auth/discord-status/:installToken` to check whether the link completed and to retrieve the resolved display name and avatar URL. For an already-linked account, the same bounded request also reconciles the live Supporter or Overseer's Circle role, so focus and manual refresh can restore a missed entitlement without requiring a new OAuth link.
 
+### Discord unlink is a logout
+
+The overlay's Settings → Discord → **UNLINK** control calls
+`DELETE /api/link/provider/discord` with the current `X-Auth-Token`. The backend clears the
+Discord identity fields, removes the pending `discord_link:<installToken>` cache entry,
+revokes the active session, and evicts live relay subscribers. The overlay clears its local
+Discord-derived state, expands/shows the window, and displays the provider login wall. The
+FCM user row and Discord-keyed supporter/admin entitlements are retained.
+
 ### DEV persona accounts
 
 The unpackaged overlay's **DEV ACCOUNTS** buttons call

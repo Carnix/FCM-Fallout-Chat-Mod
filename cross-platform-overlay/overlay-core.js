@@ -40,6 +40,21 @@ function stateHasRealData(s) {
   return false;
 }
 
+// State fields that must be cleared when the server revokes the overlay session
+// after a Discord unlink. Keep this pure so the main-process logout path can be
+// regression-tested without loading Electron.
+function buildDiscordUnlinkStatePatch() {
+  return {
+    discordLinked: false,
+    discordName: '',
+    discordUsername: '',
+    discordDisplayName: '',
+    discordAvatarUrl: '',
+    avatarUrl: '',
+    userRole: null,
+  };
+}
+
 // CF/edge response classification. 429 is NOT a CF challenge (rate-limit).
 //   • Only a 403 or 503 can be a Cloudflare edge block/challenge, and ONLY when a
 //     CF MARKER is present (cf-mitigated header OR text/html challenge/error page
@@ -1209,6 +1224,7 @@ module.exports = {
   resolveLogLevel,
   shouldRotateLog,
   stateHasRealData,
+  buildDiscordUnlinkStatePatch,
   isCfChallenge,
   isSinglePrintableChar,
   resolveAppClientKey,

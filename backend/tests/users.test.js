@@ -6,6 +6,7 @@ const mockRedis = {
   get: jest.fn().mockResolvedValue(null),
   set: jest.fn().mockResolvedValue('OK'),
   del: jest.fn().mockResolvedValue(1),
+  publish: jest.fn().mockResolvedValue(1),
   ping: jest.fn().mockResolvedValue('PONG'),
   connect: jest.fn().mockResolvedValue(undefined),
   on: jest.fn(),
@@ -121,5 +122,74 @@ describe('POST /api/users', () => {
       installToken: '123e4567-e89b-12d3-a456-426614174000',
     });
     expect(res.status).toBe(400);
+  });
+});
+
+describe('DELETE /api/link/provider/discord', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockRedis.get.mockResolvedValue(null);
+    prismaStub.user.findUnique.mockResolvedValue(null);
+  });
+
+  it('clears the Discord identity, revokes the active session, and reports logout', async () => {
+    mockRedis.get.mockResolvedValueOnce('user-uuid');
+    prismaStub.user.findUnique.mockResolvedValue({
+      id: 'user-uuid',
+      username: 'Wanderer76',
+      isBanned: false,
+      bannedUntil: null,
+      banReason: null,
+      banCategory: null,
+      isMuted: false,
+      muteExpiresAt: null,
+      discordId: '123456789012345',
+      installToken: '123e4567-e89b-12d3-a456-426614174000',
+    });
+
+    const res = await request(app)
+      .delete('/api/link/provider/discord')
+      .set('X-Auth-Token', 'session-token');
+
+    expect(res.status).toBe(200);
+    expect(res.body.data).toEqual({ success: true, loggedOut: true });
+    expect(prismaStub.user.update).toHaveBeenCalledWith({
+      where: { id: 'user-uuid' },
+      data: {
+        discordId: null,
+        discordUsername: null,
+        discordDisplayName: null,
+        discordAvatar: null,
+        discordAuthedAt: null,
+      },
+    });
+    expect(mockRedis.del).toHaveBeenCalledWith('discord_link:123e4567-e89b-12d3-a456-426614174000');
+    expect(mockRedis.del).toHaveBeenCalledWith('session:session-token');
+    expect(prismaStub.session.delete).toHaveBeenCalledWith({ where: { token: 'session-token' } });
+    expect(mockRedis.publish).toHaveBeenCalled();
+  });
+
+  it('does not revoke a session when Discord is already unlinked', async () => {
+    mockRedis.get.mockResolvedValueOnce('user-uuid');
+    prismaStub.user.findUnique.mockResolvedValue({
+      id: 'user-uuid',
+      username: 'Wanderer76',
+      isBanned: false,
+      bannedUntil: null,
+      banReason: null,
+      banCategory: null,
+      isMuted: false,
+      muteExpiresAt: null,
+      discordId: null,
+      installToken: '123e4567-e89b-12d3-a456-426614174000',
+    });
+
+    const res = await request(app)
+      .delete('/api/link/provider/discord')
+      .set('X-Auth-Token', 'session-token');
+
+    expect(res.status).toBe(404);
+    expect(prismaStub.user.update).not.toHaveBeenCalled();
+    expect(prismaStub.session.delete).not.toHaveBeenCalled();
   });
 });
