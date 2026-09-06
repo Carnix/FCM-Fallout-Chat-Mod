@@ -426,8 +426,10 @@ if widget_src:
     check(re.search(r"^\s*function readDisplayNameWithAccountFallback", widget_src,
                     re.MULTILINE) is None,
           "FCMChatWidget has no obsolete compatibility resolver")
-    check('static inline var VERSION:String  = "2.10.56";' in widget_src,
-          "FCMChatWidget ships physical Page-key navigation fallback build 2.10.56")
+    version_match = re.search(r'static inline var VERSION:String\s*=\s*"(\d+\.\d+\.\d+)";', widget_src)
+    build_doc = open(os.path.join(os.path.dirname(WIDGET_HX), "BUILD.md"), encoding="utf-8").read()
+    check(version_match is not None and f"**Widget version:** {version_match.group(1)}." in build_doc,
+          "FCMChatWidget source version matches the documented test build")
     check('FcmAuthFlow.classify' in widget_src
           and 'transport accepted; xScal auth pending' in widget_src
           and 'xScal auth state' in widget_src,
