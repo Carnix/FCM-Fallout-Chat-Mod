@@ -152,7 +152,7 @@ class FCMChatWidget extends MovieClip {
     // 2.10.0 is the first build that reports clientVersion to the relay. The relay
     // treats "no version reported" as "oldest possible client" and gates any new wire
     // field on this, so the version bump IS the capability signal.
-    static inline var VERSION:String  = "2.10.56"; // physical nav via ZFE dispatcher, relay-independent
+    static inline var VERSION:String  = "2.10.57"; // provider-independent server control response parsing
     static inline var SETTINGS_PATH:String = "settings.ini";
     // This is a top-level ZFE command, not a relay operation. ZFE owns the DPAPI/local auth file
     // and must clear it; the SWF is not allowed to write arbitrary files from the HUD domain.
@@ -3836,11 +3836,11 @@ class FCMChatWidget extends MovieClip {
     // =========================================================================
 
     /**
-     * Apply the synchronous result from a server-room control. The native bridge returns the
-     * relay's response directly, so this is the acknowledgement boundary for exposing SERVER.
+     * Apply native acceptance of a server-room control. Some bridges queue sends;
+     * acceptance alone does not prove relay delivery or completion of history replay.
      */
     function applyServerControlResult(raw:String, source:String, readyOnSuccess:Bool = true):Bool {
-        var ok:Bool = raw != null && (raw.indexOf('"success":true') >= 0 || raw.indexOf('success:true') >= 0);
+        var ok:Bool = FcmWire.controlAccepted(raw);
         if (ok) {
             setServerSessionReady(readyOnSuccess, "");
             if (readyOnSuccess) startServerHistoryDrain();

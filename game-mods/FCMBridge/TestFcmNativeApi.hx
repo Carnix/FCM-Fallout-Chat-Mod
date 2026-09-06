@@ -382,6 +382,21 @@ class TestFcmNativeApi {
         check("VK lower boundary", rangeApi.registerPhysicalKey(1));
         check("VK upper boundary", rangeApi.registerPhysicalKey(255));
         verifyXscalNavigationKeys(chat);
+        // SERVER uses the same control protocol regardless of native provider.
+        // Include repeated leaves/joins, history recovery, and a real chat send.
+        for (body in ["FCMCTL/1/ROSTER:alice|bob", "FCMCTL/1/LEAVE",
+                "FCMCTL/1/ROSTER:carol", "FCMCTL/1/RESYNC", "FCMCTL/1/LEAVE",
+                "FCMCTL/1/WORLD:world-two", "server message"]) {
+            var payload:String = haxe.Json.stringify({channel: "server", body: body});
+            zApi.call("chat.v1.sendMessage", payload);
+            xApi.call("chat.v1.sendMessage", payload);
+            check("ZFE preserves SERVER payload " + body,
+                zCalls[zCalls.length - 1] == "chat.v1.sendMessage|" + payload);
+            var forwarded:Dynamic = haxe.Json.parse(xCalls[xCalls.length - 1].substr("sendMessage|".length));
+            check("xScal preserves SERVER object " + body,
+                forwarded.channel == "server" && forwarded.body == body);
+        }
+
         if (failures > 0) Sys.exit(1);
     }
 

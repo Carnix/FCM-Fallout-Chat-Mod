@@ -2,7 +2,7 @@
 
 A HUDModLoader widget that adds interactive FCM community chat to Fallout 76's HUD.
 
-> **Status (2026-09-05):** v2.10.56 — source, relay, and packaged BA2 are kept together. The
+> **Status (2026-09-05):** v2.10.57 — source, relay, and packaged BA2 are kept together. The
 > in-game mod is an explicit opt-in; the default desktop overlay remains separate. Build, install,
 > rollout, and acceptance checks are in [BUILD.md](BUILD.md).
 
@@ -127,7 +127,12 @@ empty or completely disjoint replacement of that same provider’s nonempty snap
 `LEAVE`, clears only local ephemeral server rows,
 and causes a fresh roster bind on the next poll. Once that bind is acknowledged, the relay
 replays the current room's bounded recent server history and the sub-tab becomes available again.
-Static channel history remains durable; server history is intentionally ephemeral. Clearing server
+Static channel history remains durable; server history is intentionally ephemeral. Server
+control results are parsed using the outer Boolean `success` field, including whitespace and
+legacy unquoted keys, on both xScal and ZFE. Nested or message-body `success` text cannot enable
+the tab. Native acceptance may mean a queued send; it is not proof of relay delivery. Validate
+actual room binding, history and leave/join behavior in-game on each extender.
+Clearing server
 rows clears their replay IDs as well, so rejoining can restore those messages. Static message IDs
 remain remembered across transitions; reconnecting resets native event IDs. Unchanged empty
 auxiliary providers do not trigger repeated leaves. The pure `FcmHistory` regression suite runs
