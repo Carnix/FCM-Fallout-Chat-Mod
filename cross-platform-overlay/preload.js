@@ -76,6 +76,9 @@ contextBridge.exposeInMainWorld('relayBridge', {
   linkSteam: () => ipcRenderer.send('steam:link'),
   // Revoke the server-side Discord identity and the active overlay session.
   unlinkDiscord: () => ipcRenderer.invoke('discord:unlink'),
+  // Revoke Steam; when it is the last provider the main process also signs out
+  // and returns the renderer to the provider login wall.
+  unlinkSteam: () => ipcRenderer.invoke('steam:unlink'),
   openExternal: (url) => ipcRenderer.send('shell:open-external', url),
   // Surface a renderer-side diagnostic line into the main-process log file.
   logDiag: (msg) => ipcRenderer.send('shell:diag', msg),

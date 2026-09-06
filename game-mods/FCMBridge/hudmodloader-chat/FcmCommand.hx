@@ -107,9 +107,18 @@ class FcmCommand {
      * the token matching also covers loader/game-version aliases for quick actions and
      * the friends list. These actions must be handled before normal widget navigation.
      */
+    /** SERVER records are already room-validated on ingestion and cleared on leave. */
+    public static function acceptsInputCallback(open:Bool, current:Int, callback:Int):Bool {
+        return open && current == callback;
+    }
+
+    public static function channelVisible(active:String, channel:String):Bool {
+        return active == channel || (active == "global" && channel == "server");
+    }
+
     public static function isExternalInputAction(raw:String):Bool {
         var action:String = normalizeAction(raw);
-        return action == "escape" || action == "cancel"
+        return action == "escape" || action == "cancel" || action == "pipboy"
             || action.indexOf("quick") >= 0
             || action.indexOf("friend") >= 0
             || action.indexOf("social") >= 0

@@ -117,7 +117,11 @@ to `/auth/steam/callback`. The backend posts the complete OpenID assertion back 
 `https://steamcommunity.com/openid/login` endpoint, requires `is_valid:true`, checks the canonical
 SteamID64 against both identity URLs, and then binds `users.steam_id`. The desktop client polls
 `GET /api/auth/steam-status/:installToken`; a newly linked install re-registers to obtain the
-normal session token. The same Steam browser session can then redeem a HUD device code at `/link`.
+normal session token. If the active install/browser account is already linked with Discord and the
+verified Steam ID is held by an older Steam-only row, the callback merges that Steam-only row into
+the Discord account before refreshing the install; this is the explicit Steam-reclaim path. It
+does not auto-merge two accounts that both have non-Steam providers. The same Steam browser session
+can then redeem a HUD device code at `/link`.
 
 ---
 

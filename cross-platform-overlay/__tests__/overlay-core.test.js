@@ -8,6 +8,7 @@ import core from '../overlay-core.js';
 const {
   stateHasRealData,
   buildDiscordUnlinkStatePatch,
+  buildSteamUnlinkStatePatch,
   isCfChallenge,
   isSinglePrintableChar,
   resolveAppClientKey,
@@ -72,6 +73,16 @@ describe('buildDiscordUnlinkStatePatch', () => {
       discordUsername: '',
       discordDisplayName: '',
       discordAvatarUrl: '',
+      avatarUrl: '',
+      userRole: null,
+    });
+  });
+});
+
+describe('buildSteamUnlinkStatePatch', () => {
+  it('clears Steam-only identity state without clearing Discord state', () => {
+    expect(buildSteamUnlinkStatePatch()).toEqual({
+      steamLinked: false,
       avatarUrl: '',
       userRole: null,
     });

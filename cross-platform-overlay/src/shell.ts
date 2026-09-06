@@ -1403,9 +1403,15 @@ function buildSettingsPanel() {
     // ── STEAM ACCOUNT ──
     heading(s, 'STEAM ACCOUNT');
     const steamStatus = el('div', { className: 'ss-discord-status' });
+    const steamBtns = el('div', { className: 'ss-discord-btns' });
+    const steamLinkBtn = el('button', { className: 'ss-fbtn ss-discord-link' }, 'LINK STEAM');
+    const steamRefreshBtn = el('button', { className: 'ss-fbtn' }, 'REFRESH STATUS');
+    const steamUnlinkFeedback = el('span', { className: 'ss-note ss-discord-unlink-feedback' });
+    const steamUnlinkBtn = el('button', { className: 'ss-fbtn ss-discord-unlink' }, 'UNLINK');
     const renderSteamStatus = () => {
       const linked = !!currentSettings.steamLinked;
       steamStatus.classList.toggle('linked', linked);
+      steamUnlinkBtn.style.display = linked ? '' : 'none';
       steamStatus.replaceChildren(
         el('span', { className: 'ss-dot' }),
         document.createTextNode(linked ? 'Linked' : 'Not linked'),
@@ -1414,10 +1420,7 @@ function buildSettingsPanel() {
     renderSteamStatus();
     s.append(steamStatus);
 
-    const steamBtns = el('div', { className: 'ss-discord-btns' });
-    const steamLinkBtn = el('button', { className: 'ss-fbtn ss-discord-link' }, 'LINK STEAM');
     steamLinkBtn.addEventListener('click', () => { window.relayBridge.linkSteam?.(); });
-    const steamRefreshBtn = el('button', { className: 'ss-fbtn' }, 'REFRESH STATUS');
     steamRefreshBtn.title = 'Re-check your Steam link status from the server';
     steamRefreshBtn.addEventListener('click', () => {
       steamRefreshBtn.textContent = '…';
@@ -1428,9 +1431,28 @@ function buildSettingsPanel() {
         steamRefreshBtn.removeAttribute('disabled');
       }, 3000);
     });
-    steamBtns.append(steamLinkBtn, steamRefreshBtn);
+    steamUnlinkBtn.addEventListener('click', async () => {
+      if (!confirm('Unlink your Steam account from this overlay?\n\nIf Steam is your only linked provider, you will be signed out and returned to the login screen.')) return;
+      steamUnlinkBtn.disabled = true;
+      steamUnlinkBtn.textContent = '…';
+      steamUnlinkFeedback.textContent = 'Unlinking…';
+      const result = await window.relayBridge.unlinkSteam?.();
+      if (!result?.ok) {
+        steamUnlinkBtn.disabled = false;
+        steamUnlinkBtn.textContent = 'UNLINK';
+        steamUnlinkFeedback.textContent = result?.message || 'Could not unlink Steam. Please try again.';
+        return;
+      }
+
+      commit({ steamLinked: false });
+      renderSteamStatus();
+      renderProfile();
+      if (result.loggedOut) closeSettings();
+    });
+    steamBtns.append(steamLinkBtn, steamRefreshBtn, steamUnlinkBtn);
+    s.append(steamUnlinkFeedback);
     s.append(steamBtns);
-    hint(s, 'Linking opens Steam in your browser to authorise this install. Return to the overlay and refresh status if it does not update automatically.');
+    hint(s, 'Linking opens Steam in your browser to authorise this install. Return to the overlay and refresh status if it does not update automatically. Unlinking Steam signs you out when it is your only linked provider.');
 
     window.relayBridge.onSteamStatus?.((status) => {
       commit({ steamLinked: !!(status.steamLinked ?? status.linked) });

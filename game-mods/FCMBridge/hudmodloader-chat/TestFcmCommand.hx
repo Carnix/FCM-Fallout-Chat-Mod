@@ -10,6 +10,17 @@ class TestFcmCommand {
     }
 
     static function main():Void {
+        check("released editor callback is ignored", !FcmCommand.acceptsInputCallback(false, 2, 1));
+        check("old editor cannot close replacement", !FcmCommand.acceptsInputCallback(true, 3, 1));
+        check("current editor may submit", FcmCommand.acceptsInputCallback(true, 3, 3));
+        check("General includes server messages", FcmCommand.channelVisible("global", "server"));
+        check("SERVER excludes General messages", !FcmCommand.channelVisible("server", "global"));
+        check("Trading excludes server messages", !FcmCommand.channelVisible("trading", "server"));
+        check("General includes community messages", FcmCommand.channelVisible("global", "global"));
+        check("PipBoy releases shared editor", FcmCommand.externalInputClosePath(true, false, "pipboy") == "shared");
+        check("PipBoy releases native editor", FcmCommand.externalInputClosePath(true, true, "PipBoy") == "native");
+        check("PipBoy menu blocks input", FcmRoster.hasPipboy({menuStackA: [{menuName: "PipboyMenu"}]}));
+        check("ordinary HUD allows input", !FcmRoster.hasPipboy({menuStackA: [{menuName: "HUDMenu"}]}));
         check("slash relink", FcmCommand.isRelink("/relink"));
         check("bare relink after slash stripping", FcmCommand.isRelink(" relink "));
         check("case insensitive", FcmCommand.isRelink("/RELINK"));

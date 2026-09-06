@@ -230,3 +230,12 @@ member is an empty transport slot for ordinary channel chat; it is never a real 
 BA2 files receive no envelope, while raw relay consumers retain the additive JSON fields. The
 relay stores only a short-lived one-way digest of the negotiated token/version in Redis; the
 bearer token itself is never stored.
+
+### v2.10.59 General and PipBoy behavior
+
+General includes current-room SERVER rows with their SERVER labels; the SERVER tab remains
+scoped to those rows alone. Room invalidation clears them from both views. This does not
+broadcast server chat to other worlds or to the public Discord General channel.
+PipBoy releases the HUD editor and blocks reopening during transition/while the UI menu
+is present. Late callbacks from a released editor are ignored. Both ZFE and xScal share
+this implementation; live simultaneous-input testing is required on each provider.

@@ -734,7 +734,7 @@ export async function updateChatName(req: Request, res: Response, next: NextFunc
   if (!validateUuid(targetId)) return next(createError(400, 'Invalid user ID format'));
 
   const discordId = req.dashboardUser?.discordId;
-  if (!discordId) return next(createError(401, 'Sign in with Discord first.'));
+  if (!req.user && !discordId) return next(createError(401, 'Sign in first.'));
 
   const body = (req.body ?? {}) as Record<string, unknown>;
   if (!Object.prototype.hasOwnProperty.call(body, 'chatName')) {
@@ -746,7 +746,7 @@ export async function updateChatName(req: Request, res: Response, next: NextFunc
   }
 
   try {
-    const caller = await prisma.user.findFirst({ where: { discordId }, select: { id: true } });
+    const caller = req.user ?? await prisma.user.findFirst({ where: { discordId }, select: { id: true } });
     if (!caller || caller.id !== targetId) {
       return next(createError(403, 'You can only change your own chat name.'));
     }

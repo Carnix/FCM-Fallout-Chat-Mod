@@ -81,6 +81,10 @@ display reset. The backend clears the Discord identity, revokes the active overl
 evicts live relay connections, and returns the overlay to its Steam/Discord provider login
 wall. The FCM account and its Discord-keyed entitlements are retained.
 
+Settings also exposes Steam unlink. When Discord (or another provider) remains linked, Steam is
+removed without interrupting the session. When Steam is the last provider, the backend revokes
+the session and the overlay returns to the provider login wall.
+
 ## Chat appearance in Settings
 
 **Settings → Appearance → Chat appearance** is the desktop equivalent of Profile →

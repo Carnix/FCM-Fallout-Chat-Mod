@@ -2949,18 +2949,18 @@ function refreshDiscordStatus(attempt = 0) {
 }
 ipcMain.on('discord:refresh-status', () => refreshDiscordStatus(0));
 
-// Discord unlink is an authenticated, destructive identity action. The
-// backend revokes the current session and evicts relay subscribers; this IPC
-// handler then clears the native session state and deliberately shows the
-// provider login wall, even if the overlay had previously been hidden.
-function requestDiscordUnlink() {
+// Provider unlink is an authenticated, destructive identity action. When the
+// provider was the last linked identity, the backend revokes the current
+// session and evicts relay subscribers; the matching finish handler then
+// deliberately shows the provider login wall.
+function requestProviderUnlink(provider) {
   const token = sessionToken;
   if (!token) {
     return Promise.resolve({ ok: false, reason: 'not-authenticated', message: 'You are already signed out.' });
   }
 
   return new Promise((resolve) => {
-    const url = new URL(RELAY_HTTP + '/api/link/provider/discord');
+    const url = new URL(RELAY_HTTP + '/api/link/provider/' + provider);
     const headers = {
       'Content-Type': 'application/json',
       'X-Auth-Token': token,
@@ -2984,7 +2984,7 @@ function requestDiscordUnlink() {
           let json = null;
           try { json = JSON.parse(data); } catch { /* use the generic message */ }
           if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300 && json?.data?.success) {
-            resolve({ ok: true });
+            resolve({ ok: true, loggedOut: !!json.data.loggedOut });
             return;
           }
           const message = json?.detail || json?.message || json?.error || `Unlink failed (HTTP ${res.statusCode || 0})`;
@@ -2998,7 +2998,17 @@ function requestDiscordUnlink() {
   });
 }
 
-function finishDiscordUnlink() {
+function requestDiscordUnlink() {
+  return requestProviderUnlink('discord');
+}
+
+function requestSteamUnlink() {
+  return requestProviderUnlink('steam');
+}
+
+function finishProviderUnlink(provider) {
+  const label = provider === 'steam' ? 'Steam' : 'Discord';
+  const reason = label + ' account unlinked';
   authGeneration += 1;
   providerLoginRequested = false;
   sessionToken = null;
@@ -3009,15 +3019,17 @@ function finishDiscordUnlink() {
   // carrying the old token after a quick provider re-login.
   while (pendingWsOpens.length > 0) {
     const id = pendingWsOpens.shift();
-    sendToRenderer('proxy:ws:close', { id, code: 4001, reason: 'Discord account unlinked' });
+    sendToRenderer('proxy:ws:close', { id, code: 4001, reason });
   }
   for (const sock of relaySockets.values()) {
-    try { sock.close(4001, 'Discord account unlinked'); } catch { /* closing */ }
+    try { sock.close(4001, reason); } catch { /* closing */ }
   }
   relaySockets.clear();
   relaySendBuffers.clear();
 
-  saveState(overlayCore.buildDiscordUnlinkStatePatch());
+  saveState(provider === 'steam'
+    ? overlayCore.buildSteamUnlinkStatePatch()
+    : overlayCore.buildDiscordUnlinkStatePatch());
   userRole = null;
   rebuildTray();
   chatActive = false;
@@ -3032,14 +3044,29 @@ function finishDiscordUnlink() {
     state: 'auth_required',
     authRequired: true,
     requiredProviders: ['discord', 'steam'],
-    message: 'Discord account unlinked. Sign in again to continue.',
+    message: label + ' account unlinked. Sign in again to continue.',
   });
+}
+
+function finishDiscordUnlink() {
+  finishProviderUnlink('discord');
+}
+
+function finishSteamUnlink() {
+  finishProviderUnlink('steam');
 }
 
 ipcMain.handle('discord:unlink', async () => {
   const result = await requestDiscordUnlink();
   if (!result.ok) return result;
   finishDiscordUnlink();
+  return result;
+});
+
+ipcMain.handle('steam:unlink', async () => {
+  const result = await requestSteamUnlink();
+  if (!result.ok) return result;
+  if (result.loggedOut) finishSteamUnlink();
   return result;
 });
 

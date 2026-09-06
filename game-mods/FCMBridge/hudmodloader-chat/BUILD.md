@@ -1,9 +1,22 @@
 # FCMChatWidget build, install, and verification
 
-> **Widget version:** 2.10.58. This is the optional in-game HUD-mod track. It is
+> **Widget version:** 2.10.59. This is the optional in-game HUD-mod track. It is
 > never installed or modified by the desktop overlay.
 
 ## What it does
+
+v2.10.59 includes current-room SERVER messages in General, retaining the SERVER label.
+The SERVER tab remains a server-only view. Sending from General still sends to General;
+SERVER delivery remains scoped to the confirmed room and is cleared from both views on leave.
+
+PipBoy actions release the current HUD text editor before returning control to the game.
+The open-input path refuses entry during the 1.5-second menu transition and while exposed
+`MenuStackData` contains PipBoy. Existing input polling also closes an editor if the menu
+appears without a named action. SharedHUDTools callbacks carry an editor generation so a
+late callback cannot submit or close a replacement editor. This is an ownership handoff,
+not xScal keyboard suppression; the provided xScal keyboard API does not offer suppression.
+In-game verification must exercise simultaneous Insert/PipBoy and reopening after closing
+PipBoy on both providers. Static tests do not certify that a game freeze is resolved.
 
 `FCMChatWidget.ba2` contains `interface/FCMChatWidget.swf`, a HUDModLoader child
 widget. It calls the active script extender's sanctioned chat API for authenticated community
@@ -409,7 +422,7 @@ staff validation on every request; the HUD permission is only a visibility hint.
 
 ## In-game acceptance checklist
 
-1. With HUDModLoader and ZFE or xScal loaded, the startup log identifies `chatv1-widget-v2.10.58`. If
+1. With HUDModLoader and ZFE or xScal loaded, the startup log identifies `chatv1-widget-v2.10.59`. If
    `AccountInfoData` is late, the widget waits and retries. The sender label and a newly sent
    message use the exact public Fallout 76 account handle, including punctuation; neither
    `Wanderer` nor the local character name is used for the relay handshake.

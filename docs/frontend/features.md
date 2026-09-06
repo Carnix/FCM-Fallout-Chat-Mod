@@ -63,6 +63,7 @@ certain user actions) do a secondary `ADMIN_ROLES` check inside the component.
 
 | File | Route | Purpose |
 |------|-------|---------|
+| `ConnectedAccountsPanel.tsx` | Self-profile only | Shows Steam/Discord status and optional, session-bound Discord linking without switching accounts. |
 | `Profile.tsx` | `/profile/:userId` | Public user profile. Shows username, Discord info, message history snippet, moderation notes (staff only). |
 
 ---

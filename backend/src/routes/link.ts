@@ -57,7 +57,7 @@ const redemptionIpLimiter = rateLimit({
  * sign-in loop and the code-entry screen would never show. This implements the routes' documented
  * "X-Auth-Token or provider session" contract. Mirrors requireAuth's ban auto-lift + reject.
  */
-async function requireLinkAuth(req: Request, _res: Response, next: NextFunction): Promise<void> {
+export async function requireLinkAuth(req: Request, _res: Response, next: NextFunction): Promise<void> {
   try {
     let userId: string | null = null;
 
@@ -499,16 +499,49 @@ router.delete('/provider/:provider', requireAuth, async (req: Request, res: Resp
     if (provider === 'steam') {
       const user = await prisma.user.findUnique({
         where: { id: userId },
-        select: { steamId: true, discordId: true },
+        select: { steamId: true, discordId: true, installToken: true },
       });
       if (!isValidSteamId(user?.steamId)) return next(createError(404, 'Steam identity not linked.'));
       const otherIdentities = await prisma.linkedIdentity.count({ where: { userId } });
-      if (!user.discordId && otherIdentities < 1) {
-        return next(createError(409, 'Cannot remove your last linked provider. Link another account first.'));
-      }
       await prisma.user.update({ where: { id: userId }, data: { steamId: null } });
+
+      const loggedOut = !user.discordId && otherIdentities < 1;
+      if (loggedOut) {
+        // Steam was the last provider. Invalidate the same overlay session and
+        // relay subscriptions as Discord unlink so the client cannot continue
+        // using a session for an account that no longer has a provider.
+        try {
+          const redis = await getRedisClient();
+          await redis.del(`steam_link:${user.installToken}`);
+          if (req.sessionToken) await redis.del(`session:${req.sessionToken}`);
+        } catch (sessionErr) {
+          logger.warn({ err: sessionErr, userId }, 'Steam unlink session/cache cleanup failed');
+        }
+        if (req.sessionToken) {
+          await prisma.session.delete({ where: { token: req.sessionToken } }).catch((sessionErr) => {
+            logger.warn({ err: sessionErr, userId }, 'Steam unlink database session cleanup failed');
+          });
+        }
+
+        try {
+          const relay = require('../services/relay/relayHandler') as {
+            evictRelayUser: (linkedUserId: string, options: { code: string; message: string }) => Promise<number>;
+          };
+          await relay.evictRelayUser(userId, {
+            code: 'steam_unlinked',
+            message: 'Steam account unlinked. Sign in again to continue.',
+          });
+        } catch (relayErr) {
+          logger.warn({ err: relayErr, userId }, 'Steam unlink relay eviction failed');
+        }
+
+        logger.info({ userId, provider }, 'Steam identity unlinked and overlay session revoked');
+        res.json({ data: { success: true, loggedOut: true } });
+        return;
+      }
+
       logger.info({ userId, provider }, 'Provider identity unlinked');
-      res.json({ data: { success: true } });
+      res.json({ data: { success: true, loggedOut: false } });
       return;
     }
 

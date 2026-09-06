@@ -7,7 +7,7 @@ The backend has distinct auth flows for the dashboard, desktop overlay, HUD link
 > Steam OpenID is available as a direct alternative, and the in-game chat gets a **device-code link**.
 > The install-token flow below stays as the device/session mechanism, but on its own it no longer
 > grants chat — a bare install is **limited** until linked. Public-website read-only stays open;
-> **sending is gated**. The admin dashboard stays Discord-only (elevated roles need Discord, #168).
+> **sending is gated**. Website account/profile sign-in also accepts Steam; elevated dashboard roles still require Discord (#168).
 > Authoritative design: [hud-chat-auth-design.md](hud-chat-auth-design.md) (multi-provider + pairing /
 > device-code) and epic #163; the chat.v1 in-game gate is in
 > [native-chat-relay/fcm-integration.md](../overlay/zfe/native-chat-relay/fcm-integration.md#mandatory-auth-gate--limited-until-a-provider-linked-fcm-account).
@@ -121,6 +121,11 @@ revokes the active session, and evicts live relay subscribers. The overlay clear
 Discord-derived state, expands/shows the window, and displays the provider login wall. The
 FCM user row and Discord-keyed supporter/admin entitlements are retained.
 
+Settings → Steam → **UNLINK** calls the same provider endpoint. If Discord or another linked
+provider remains, only `steam_id` is cleared and the active session stays valid. If Steam was the
+last provider, the backend clears `steam_id`, revokes the active session, evicts live relay
+subscribers, returns `loggedOut: true`, and the overlay returns to the provider login wall.
+
 ### DEV persona accounts
 
 The unpackaged overlay's **DEV ACCOUNTS** buttons call
@@ -178,8 +183,11 @@ the browser flow used by `/link`. Both flows store one-time state in Redis for 1
 Steam's fixed canonical endpoint, both identity URLs contain the same canonical 17-digit SteamID64,
 and Steam returns `is_valid:true` from its server-side `check_authentication` verification. The
 callback then checks the Steam deny-list and attaches `steam_id` to the existing FCM user (or
-provisions a Steam-only account). A desktop callback also refreshes the install status; Electron
-re-registers the install and receives the normal 24-hour session token.
+provisions a Steam-only account). If the active account is already authenticated with Discord (or
+another linked provider) and the Steam ID belongs to an older Steam-only row, the callback merges
+that Steam-only row into the active account with `mergeUserInto()`. It refuses to silently merge
+two accounts that both already have non-Steam provider identities. A desktop callback also refreshes
+the install status; Electron re-registers the install and receives the normal 24-hour session token.
 
 Steam-only accounts can use the basic overlay and redeem the HUD device-code link. Steam does not
 grant dashboard staff roles; elevated dashboard and HUD moderation actions remain Discord-role gated.
@@ -273,3 +281,22 @@ See [services.md](./services.md#devauthservicets) for the full service API and [
 | `PROD_VERIFY_TOKEN` | Bearer token for authenticating calls to `verify-dev-role` |
 
 All six default to `''` (empty string). The gate fails closed whenever any of them are missing.
+
+## Steam website accounts and optional Discord profile linking
+
+`GET /auth/steam?intent=admin` verifies Steam OpenID, creates or reuses the canonical
+Steam account shared with overlay linking, and redirects to `/profile/:userId`.
+`GET /auth/me` resolves Steam cookies through the current database `steam_id`, ignoring
+cached user IDs and rejecting missing/banned accounts. Steam sessions have member access;
+they do not obtain administrative observer WebSocket tickets or Discord roles.
+
+The self-profile Connected accounts panel reads `/api/link/game`. Its optional **Link Discord**
+action uses `GET /auth/discord/profile`, requiring the existing authenticated account.
+The one-time OAuth state binds both browser session and target account. The callback
+rechecks the current owner, verifies Discord identity with `identify`, and attaches it
+transactionally to that same account. This optional link does not require guild membership
+and grants no roles; Discord sign-in and Dev developer/QA authorization retain their own
+membership checks. A Discord identity on another account, an existing different Discord
+link, a banned account, or a changed session fails without an account merge. Success returns
+to the profile with `linked=discord`; failures use `linkError` or a session error.
+Self-service chat-name updates accept the same verified provider sessions.

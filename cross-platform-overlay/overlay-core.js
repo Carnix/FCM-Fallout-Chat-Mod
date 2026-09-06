@@ -55,6 +55,17 @@ function buildDiscordUnlinkStatePatch() {
   };
 }
 
+// State fields that must be cleared when Steam was the last provider and the
+// server revoked the overlay session. Discord fields are intentionally left
+// untouched so this patch is safe if another provider remains linked.
+function buildSteamUnlinkStatePatch() {
+  return {
+    steamLinked: false,
+    avatarUrl: '',
+    userRole: null,
+  };
+}
+
 // CF/edge response classification. 429 is NOT a CF challenge (rate-limit).
 //   • Only a 403 or 503 can be a Cloudflare edge block/challenge, and ONLY when a
 //     CF MARKER is present (cf-mitigated header OR text/html challenge/error page
@@ -1225,6 +1236,7 @@ module.exports = {
   shouldRotateLog,
   stateHasRealData,
   buildDiscordUnlinkStatePatch,
+  buildSteamUnlinkStatePatch,
   isCfChallenge,
   isSinglePrintableChar,
   resolveAppClientKey,

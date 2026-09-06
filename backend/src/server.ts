@@ -73,7 +73,8 @@ import {
 } from './routes/adminCommunityStats';
 import migrationRouter from './routes/migration';
 import { requireMigrationKey } from './middleware/requireMigrationKey';
-import linkRouter from './routes/link';
+import linkRouter, { requireLinkAuth } from './routes/link';
+import { resolveGameUser } from './middleware/resolveGameUser';
 import { isBannedIdentity, linkProviderIdentity, unlinkProviderIdentity } from './routes/link';
 
 // Services
@@ -121,6 +122,7 @@ import {
   STEAM_OPENID_ENDPOINT,
   validateSteamAssertion,
 } from './services/steamAuthService';
+import { resolveSteamLinkTarget, type SteamLinkAccount } from './services/steamAccountLinkService';
 import {
   DEV_PRIVILEGED_ROLES,
   defaultDevPersonaCallbackDeps,
@@ -279,6 +281,19 @@ if (env.NODE_ENV === 'development') {
   app.get('/api/auth/qa-status/:installToken', apiLimiter, makeQaStatusHandler(defaultQaStatusDeps));
 }
 
+app.get('/auth/discord/profile', authLimiter, requireLinkAuth, async (req: Request, res: Response) => {
+  const state = uuidv4();
+  const redis = await getRedisClient();
+  await redis.set(`oauth_state:${state}`, serializeBoundOAuthState({
+    intent: 'profile', sessionId: req.sessionID, linkUserId: req.user!.id,
+  }), { EX: 300 });
+  (req.session as any).oauthState = state;
+  await new Promise<void>((resolve, reject) => req.session.save(err => err ? reject(err) : resolve()));
+  const params = new URLSearchParams({ client_id: env.DISCORD_CLIENT_ID,
+    redirect_uri: env.DISCORD_REDIRECT_URI, response_type: 'code', scope: 'identify', state });
+  res.redirect(`https://discord.com/api/oauth2/authorize?${params}`);
+});
+
 app.get('/auth/discord', authLimiter, async (req: Request, res: Response) => {
   // CSRF protection: store state token in Redis and bind it to the initiating
   // browser session. A random state alone does not stop a callback captured
@@ -326,10 +341,10 @@ app.get('/auth/discord/callback', authLimiter, async (req: Request, res: Respons
   if (!code) { res.status(400).send('Missing code'); return; }
 
   // Validate CSRF state token from Redis
-  let stateData: { intent: string; sessionId: string };
+  let stateData: { intent: string; sessionId: string; linkUserId?: string };
   try {
     const redis = await getRedisClient();
-    const valid = await redis.get(`oauth_state:${state}`); await redis.del(`oauth_state:${state}`);
+    const valid = await redis.getDel(`oauth_state:${state}`);
     if (!state || !valid) {
       res.status(403).send('Invalid OAuth state -- possible CSRF. Please try logging in again.');
       return;
@@ -339,7 +354,7 @@ app.get('/auth/discord/callback', authLimiter, async (req: Request, res: Respons
       res.status(403).send('Invalid OAuth state -- session mismatch. Please try logging in again.');
       return;
     }
-    stateData = { intent: parsedState.intent || 'admin', sessionId: parsedState.sessionId };
+    stateData = { ...parsedState, intent: parsedState.intent || 'admin' };
   } catch (err) {
     logger.error({ err }, 'Failed to validate OAuth state');
     res.status(500).send('Internal error');
@@ -372,7 +387,46 @@ app.get('/auth/discord/callback', authLimiter, async (req: Request, res: Respons
     });
     const discordUser = await userRes.json() as any;
 
-    // Verify server membership — required for all auth flows
+    if (stateData.intent === 'profile') {
+      const owner = await resolveGameUser(req);
+      if (!stateData.linkUserId || owner?.userId !== stateData.linkUserId) {
+        res.status(403).send('Your sign-in changed. Start account linking again from your profile.');
+        return;
+      }
+      const profileUrl = `${frontendBase}/profile/${encodeURIComponent(owner.userId)}`;
+      if (!userRes.ok || typeof discordUser.id !== 'string' || !/^\d{15,22}$/.test(discordUser.id)) {
+        res.redirect(`${profileUrl}?linkError=verification`); return;
+      }
+      if (await isBannedIdentity('discord', discordUser.id)) {
+        res.redirect(`${profileUrl}?linkError=unavailable`); return;
+      }
+      try {
+        await prisma.$transaction(async tx => {
+          const account = await tx.user.findUnique({ where: { id: owner.userId } });
+          if (!account || (account.isBanned && (!account.bannedUntil || account.bannedUntil.getTime() > Date.now()))) {
+            throw new Error('account unavailable');
+          }
+          // Never merge accounts or replace a different Discord identity implicitly.
+          const updated = await tx.user.updateMany({
+            where: { id: owner.userId, OR: [{ discordId: null }, { discordId: discordUser.id }] },
+            data: { discordId: discordUser.id, discordUsername: String(discordUser.username),
+              discordDisplayName: String(discordUser.global_name || discordUser.username).slice(0, 128),
+              discordAvatar: discordUser.avatar || null, discordAuthedAt: new Date() },
+          });
+          if (updated.count !== 1) throw new Error('identity conflict');
+          await tx.auditLog.create({ data: { actorId: owner.userId, targetId: owner.userId,
+            targetType: 'user', action: 'discord_profile_linked' } });
+        });
+      } catch {
+        res.redirect(`${profileUrl}?linkError=conflict`); return;
+      }
+      captureAvatar(discordUser.id, discordUser.avatar).catch(() => {});
+      // Linking proves an identity, not Discord membership or a privileged role.
+      res.redirect(`${profileUrl}?linked=discord`);
+      return;
+    }
+
+    // Verify server membership — required for Discord sign-in flows
     const memberRes = await fetch(
       `https://discord.com/api/users/@me/guilds/${env.DISCORD_SERVER_ID}/member`,
       { headers: { Authorization: `Bearer ${tokenData.access_token}` } }
@@ -916,6 +970,38 @@ app.get('/api/auth/discord-status/:installToken', async (req: Request, res: Resp
 // server-side before the returned SteamID64 is attached to an FCM account.
 const STEAM_INSTALL_TOKEN_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+const STEAM_LINK_ACCOUNT_SELECT = {
+  id: true,
+  username: true,
+  chatName: true,
+  discordId: true,
+  steamId: true,
+  isBanned: true,
+  bannedUntil: true,
+  _count: { select: { linkedIdentities: true } },
+} as const;
+
+type SteamLinkAccountRow = {
+  id: string;
+  username: string;
+  chatName: string | null;
+  discordId: string | null;
+  steamId: string | null;
+  isBanned: boolean;
+  bannedUntil: Date | null;
+  _count: { linkedIdentities: number };
+};
+
+function toSteamLinkAccount(row: SteamLinkAccountRow | null): SteamLinkAccount | null {
+  if (!row) return null;
+  return {
+    id: row.id,
+    steamId: row.steamId,
+    discordId: row.discordId,
+    linkedIdentityCount: row._count.linkedIdentities,
+  };
+}
+
 function forwardedOrigin(req: Request): string {
   const proto = String(req.headers['x-forwarded-proto'] || req.protocol || 'http').split(',')[0].trim();
   const host = String(req.headers['x-forwarded-host'] || req.headers.host || 'localhost:7177').split(',')[0].trim();
@@ -1092,44 +1178,66 @@ app.get('/auth/steam/callback', authLimiter, async (req: Request, res: Response)
     }
 
     if (installToken) {
-      const installAccount = await prisma.user.findUnique({
+      const installAccountRow = await prisma.user.findUnique({
         where: { installToken },
-        select: { id: true, username: true, chatName: true, discordId: true, steamId: true, isBanned: true, bannedUntil: true },
+        select: STEAM_LINK_ACCOUNT_SELECT,
       });
-      const existingAccount = await prisma.user.findFirst({
+      const existingAccountRow = await prisma.user.findFirst({
         where: { steamId, NOT: { installToken } },
-        select: { id: true, username: true, chatName: true, discordId: true, steamId: true, isBanned: true, bannedUntil: true },
+        select: STEAM_LINK_ACCOUNT_SELECT,
       });
-      const installLinkedIdentity = existingAccount && installAccount && existingAccount.id !== installAccount.id
-        ? await prisma.linkedIdentity.findFirst({ where: { userId: installAccount.id }, select: { id: true } })
-        : null;
+      const installAccount = toSteamLinkAccount(installAccountRow);
+      const existingAccount = toSteamLinkAccount(existingAccountRow);
 
       const activeBan = (u: { isBanned: boolean; bannedUntil: Date | null } | null) =>
         !!u?.isBanned && (!u.bannedUntil || u.bannedUntil.getTime() > Date.now());
-      if (activeBan(installAccount) || activeBan(existingAccount)) {
+      if (activeBan(installAccountRow) || activeBan(existingAccountRow)) {
         steamFailure(res, installToken, 'account_banned', 'Account Not Permitted', 'This Steam account is not permitted to use FCM Chat.');
         return;
       }
-      // Do not merge an already-linked account into another Steam account. A
-      // deliberate relink must first unlink the old Steam identity, preventing
-      // an install with another provider from silently crossing accounts.
-      if (installAccount?.steamId && installAccount.steamId !== steamId) {
-        steamFailure(res, installToken, 'steam_conflict', 'Steam Already Linked', 'This install is already linked to a different Steam account.');
-        return;
-      }
-      if (existingAccount && installAccount && existingAccount.id !== installAccount.id && (installAccount.discordId || installLinkedIdentity)) {
-        steamFailure(res, installToken, 'steam_conflict', 'Steam Account Already Linked', 'This Steam account is already linked to another FCM account.');
+
+      const resolution = resolveSteamLinkTarget({ steamId, installAccount, existingAccount });
+      if (resolution.kind === 'conflict') {
+        const alreadyLinked = resolution.reason === 'install-already-linked';
+        steamFailure(
+          res,
+          installToken,
+          'steam_conflict',
+          alreadyLinked ? 'Steam Already Linked' : 'Steam Account Already Linked',
+          alreadyLinked
+            ? 'This install is already linked to a different Steam account.'
+            : 'This Steam account is linked to another FCM account. Unlink it there or contact support for an account merge.',
+        );
         return;
       }
 
-      let targetId = existingAccount?.id || installAccount?.id;
+      let targetId = resolution.targetId;
       await prisma.$transaction(async (tx) => {
-        if (existingAccount && installAccount && existingAccount.id !== installAccount.id) {
-          await mergeUserInto(existingAccount.id, installAccount.id, tx);
-        }
-        if (targetId) {
-          await tx.user.update({ where: { id: targetId }, data: { installToken, steamId } });
-        } else {
+        if (resolution.kind === 'merge-existing-into-install') {
+          await mergeUserInto(resolution.targetId, resolution.mergeSourceId, tx);
+          await tx.user.update({
+            where: { id: resolution.targetId },
+            data: { installToken, steamId },
+          });
+          await tx.auditLog.create({
+            data: {
+              actorId: resolution.targetId,
+              action: 'steam_account_reclaimed',
+              targetId: resolution.mergeSourceId,
+              targetType: 'user',
+              reason: 'Verified Steam link reclaimed a Steam-only account row.',
+              metadata: { steamId, canonicalUserId: resolution.targetId },
+            },
+          });
+        } else if (resolution.kind === 'merge-install-into-existing') {
+          await mergeUserInto(resolution.targetId, resolution.mergeSourceId, tx);
+          await tx.user.update({
+            where: { id: resolution.targetId },
+            data: { installToken, steamId },
+          });
+        } else if (resolution.kind === 'use-install' || resolution.kind === 'use-existing') {
+          await tx.user.update({ where: { id: resolution.targetId }, data: { installToken, steamId } });
+        } else if (resolution.kind === 'create') {
           const created = await tx.user.create({
             data: { username: `pending-${installToken.slice(0, 8)}`, installToken, steamId },
             select: { id: true },
@@ -1165,6 +1273,10 @@ app.get('/auth/steam/callback', authLimiter, async (req: Request, res: Response)
       const existing = await prisma.user.findFirst({ where: { discordId }, select: { id: true } });
       sessionUserId = existing?.id ?? null;
     }
+    if (!sessionUserId && isValidSteamId(sess?.steamUser?.steamId)) {
+      const existing = await prisma.user.findFirst({ where: { steamId: sess.steamUser.steamId }, select: { id: true } });
+      sessionUserId = existing?.id ?? null;
+    }
     if (!sessionUserId && sess?.nexusUser?.providerUid) {
       const identity = await prisma.linkedIdentity.findUnique({
         where: { provider_providerUid: { provider: 'nexus', providerUid: String(sess.nexusUser.providerUid) } },
@@ -1173,38 +1285,76 @@ app.get('/auth/steam/callback', authLimiter, async (req: Request, res: Response)
       sessionUserId = identity?.userId ?? null;
     }
 
-    const existingSteam = await prisma.user.findFirst({
+    const sessionAccountRow = sessionUserId
+      ? await prisma.user.findUnique({ where: { id: sessionUserId }, select: STEAM_LINK_ACCOUNT_SELECT })
+      : null;
+    const existingSteamRow = await prisma.user.findFirst({
       where: { steamId },
-      select: { id: true, isBanned: true, bannedUntil: true },
+      select: STEAM_LINK_ACCOUNT_SELECT,
     });
-    if (existingSteam?.isBanned && (!existingSteam.bannedUntil || existingSteam.bannedUntil.getTime() > Date.now())) {
+    const sessionAccount = toSteamLinkAccount(sessionAccountRow);
+    const existingSteam = toSteamLinkAccount(existingSteamRow);
+    const activeBan = (u: { isBanned: boolean; bannedUntil: Date | null } | null) =>
+      !!u?.isBanned && (!u.bannedUntil || u.bannedUntil.getTime() > Date.now());
+    if (activeBan(sessionAccountRow) || activeBan(existingSteamRow)) {
       steamFailure(res, null, 'account_banned', 'Account Not Permitted', 'This Steam account is not permitted to use FCM Chat.');
       return;
     }
-    if (sessionUserId && existingSteam && sessionUserId !== existingSteam.id) {
-      steamFailure(res, null, 'steam_conflict', 'Steam Account Already Linked', 'This Steam account is already linked to another FCM account.');
+
+    const resolution = resolveSteamLinkTarget({ steamId, installAccount: sessionAccount, existingAccount: existingSteam });
+    if (resolution.kind === 'conflict') {
+      const alreadyLinked = resolution.reason === 'install-already-linked';
+      steamFailure(
+        res,
+        null,
+        'steam_conflict',
+        alreadyLinked ? 'Steam Already Linked' : 'Steam Account Already Linked',
+        alreadyLinked
+          ? 'This account is already linked to a different Steam account.'
+          : 'This Steam account is linked to another FCM account. Unlink it there or contact support for an account merge.',
+      );
       return;
     }
 
-    const userId = sessionUserId || existingSteam?.id || (
-      await prisma.user.create({
-        data: {
-          username: `pending-${uuidv4().slice(0, 8)}`,
-          installToken: `steam-${uuidv4()}`,
-          steamId,
-        },
-        select: { id: true },
-      })
-    ).id;
-    if (sessionUserId || existingSteam) {
-      await prisma.user.update({ where: { id: userId }, data: { steamId } });
-    }
+    let userId = resolution.targetId;
+    await prisma.$transaction(async (tx) => {
+      if (resolution.kind === 'merge-existing-into-install') {
+        await mergeUserInto(resolution.targetId, resolution.mergeSourceId, tx);
+        await tx.user.update({ where: { id: resolution.targetId }, data: { steamId } });
+        await tx.auditLog.create({
+          data: {
+            actorId: resolution.targetId,
+            action: 'steam_account_reclaimed',
+            targetId: resolution.mergeSourceId,
+            targetType: 'user',
+            reason: 'Verified Steam link reclaimed a Steam-only account row.',
+            metadata: { steamId, canonicalUserId: resolution.targetId },
+          },
+        });
+      } else if (resolution.kind === 'merge-install-into-existing') {
+        await mergeUserInto(resolution.targetId, resolution.mergeSourceId, tx);
+        await tx.user.update({ where: { id: resolution.targetId }, data: { steamId } });
+      } else if (resolution.kind === 'use-install') {
+        await tx.user.update({ where: { id: resolution.targetId }, data: { steamId } });
+      } else if (resolution.kind === 'create') {
+        const created = await tx.user.create({
+          data: {
+            username: `pending-${uuidv4().slice(0, 8)}`,
+            installToken: `steam-${uuidv4()}`,
+            steamId,
+          },
+          select: { id: true },
+        });
+        userId = created.id;
+      }
+    });
+
     sess.steamUser = { steamId, userId };
     await new Promise<void>((resolve, reject) => {
       req.session.save((err) => (err ? reject(err) : resolve()));
     });
     const intent = browserState?.intent || 'link';
-    res.redirect(intent === 'admin' ? '/chat' : '/link?linked=steam');
+    res.redirect(intent === 'admin' ? `/profile/${userId}` : '/link?linked=steam');
   } catch (err) {
     logger.error({ err, installToken, steamId }, 'Steam OpenID callback error');
     steamFailure(res, installToken, 'steam_error', 'Authentication Failed', 'Something went wrong linking your Steam account.');
@@ -1521,7 +1671,17 @@ app.get('/auth/ws-ticket', apiLimiter, async (req: Request, res: Response) => {
 
 app.get('/auth/me', apiLimiter, async (req: Request, res: Response) => {
   const sessionUser = (req.session as any).discordUser;
-  if (!sessionUser) { res.status(401).json({ data: null }); return; }
+  if (!sessionUser) {
+    const steamId = (req.session as any)?.steamUser?.steamId;
+    if (!isValidSteamId(steamId)) { res.status(401).json({ data: null }); return; }
+    const row = await prisma.user.findFirst({ where: { steamId },
+      select: { id: true, username: true, chatName: true, isBanned: true, bannedUntil: true } });
+    if (!row || (row.isBanned && (!row.bannedUntil || row.bannedUntil.getTime() > Date.now()))) {
+      res.status(401).json({ data: null }); return;
+    }
+    res.json({ data: { id: row.id, username: row.chatName || row.username, role: 'member', avatarUrl: '/avatars/default' } });
+    return;
+  }
 
   let fo76Name: string | null = null;
   let discordDisplayName: string = sessionUser.discordDisplayName ?? sessionUser.username;

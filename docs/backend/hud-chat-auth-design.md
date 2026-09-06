@@ -90,7 +90,10 @@ The dev-only guard in `hudPushTcp.ts` / `hudPushWs.ts` (`NODE_ENV=production` re
 ### Non-Goals
 
 - **NG1.** Verifying that a user's claimed FO76 name is their *actual* Bethesda/Steam account name (Bethesda has no public API for this; presence cross-check is defence-in-depth only, not a hard gate).
-- **NG2.** Full account merge (two existing accounts with different provider links joining into one). Deferred; the collision/recovery flow covers the most common case.
+- **NG2.** Arbitrary full account merge (two existing accounts that both already have non-Steam
+  provider links joining into one). Deferred; the collision/recovery flow covers the most common
+  case. The explicit Steam-link flow may absorb an older Steam-only row into the currently
+  authenticated Discord/Nexus account after Steam ownership is verified.
 - **NG3.** Silent automatic re-pairing. The one-time paste is unavoidable; the browser UX polishes it but does not remove it.
 - **NG4.** Offline token verification. Tokens require a backend lookup; the backend is required to play.
 
@@ -432,7 +435,15 @@ POST /api/link/pairing-token { fo76Name: "Devotek", mergeViaProvider: "discord" 
 
 ### 6.3 Full account merge (two distinct FCM accounts, both with different providers, both claiming same name)
 
-This case — where the person genuinely has two separate FCM accounts — is **deferred**. The system returns a support prompt: "Contact a moderator with both your Discord and Nexus account names to merge manually." Admin path: `POST /api/admin/users/:id/merge` (to be designed separately).
+This case — where both FCM accounts already have non-Steam provider links — remains **deferred**.
+The system returns a support prompt: "Contact a moderator with both your provider account names
+to merge manually." Admin path: `POST /api/admin/users/:id/merge` (to be designed separately).
+
+The Steam-link exception is narrower: when the currently authenticated account has Discord or
+another linked provider and the verified Steam ID belongs to a Steam-only row, the callback keeps
+the authenticated account canonical and moves the Steam-only row's foreign-key history into it.
+This makes a user's Steam login reclaim the same FCM account as their Discord login without
+silently joining two independently authenticated accounts.
 
 ### 6.4 Name squatting
 
@@ -621,3 +632,11 @@ backend/tests/authLink.test.js    — 18 tests, all passing
    unlinkProviderIdentity ×2, redeemLinkCode ×5, validateAndConsume ×3)
 admin-dashboard/src/features/link/__tests__/LinkPage.test.tsx — 8 tests, all passing
 ```
+
+### Website account extension (2026-09-06)
+
+Steam-only accounts can now sign in to the website account/profile via Steam OpenID,
+reusing the same account as the overlay. A self-profile can attach Discord later through
+a browser- and account-bound OAuth flow without requiring Discord at account creation.
+This extends basic website access; the Discord-only restriction above continues to apply
+to elevated administration and role-gated Dev access. See [auth.md](auth.md#steam-website-accounts-and-optional-discord-profile-linking).

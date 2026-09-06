@@ -250,6 +250,7 @@ export default function LoginPage() {
             <TerminalLine delay={1100}>  &gt; AWAITING CREDENTIALS...<span style={{ animation: 'pip-blink 1s step-end infinite', color: '#FFE44D' }}>█</span></TerminalLine>
           </div>
 
+          {ready && <a href="/auth/steam?intent=admin" style={{ display: 'block', padding: '14px 24px', marginBottom: 16, border: '1px solid #C8A840', color: '#C8A840', textAlign: 'center', textDecoration: 'none' }}>SIGN IN WITH STEAM</a>}
           {/* Discord sign-in button */}
           {ready && (
             <a

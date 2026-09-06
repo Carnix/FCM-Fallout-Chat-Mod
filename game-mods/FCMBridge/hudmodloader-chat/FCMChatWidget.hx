@@ -152,7 +152,7 @@ class FCMChatWidget extends MovieClip {
     // 2.10.0 is the first build that reports clientVersion to the relay. The relay
     // treats "no version reported" as "oldest possible client" and gates any new wire
     // field on this, so the version bump IS the capability signal.
-    static inline var VERSION:String  = "2.10.58"; // confirmed session binding and expanded HUD world roster
+    static inline var VERSION:String  = "2.10.59"; // General SERVER feed and PipBoy editor handoff
     static inline var SETTINGS_PATH:String = "settings.ini";
     // This is a top-level ZFE command, not a relay operation. ZFE owns the DPAPI/local auth file
     // and must clear it; the SWF is not allowed to write arbitrary files from the HUD domain.
@@ -451,6 +451,8 @@ class FCMChatWidget extends MovieClip {
     var _lastAuthObservation:String = "";
 
     // ── Input state ───────────────────────────────────────────────────────────
+    var _inputGeneration:Int = 0;
+    var _pipboyTransitionUntil:Float = 0;
     var _inputOpen:Bool          = false;
     // v2.5.3: DECODED native chat-input API — bare-value payloads ("true"/"false"),
     // consume=boolean, text from readChatInput. Native input is attempted lazily on open;
@@ -1278,6 +1280,10 @@ class FCMChatWidget extends MovieClip {
         // fallback owns only its ZFE bridge session.
         // action such as OpenSocial (Ctrl+Tab), OpenFriendList, or Escape. This must run on the
         // event's key-down/key-up edge before the game's own menu handler gets the action.
+        if (FcmCommand.actionKey(action) == "pipboy") {
+            // Cover either ordering of Insert and PipBoy while the menu stack catches up.
+            _pipboyTransitionUntil = flash.Lib.getTimer() + 1500;
+        }
         var externalClosePath:String = FcmCommand.externalInputClosePath(_inputOpen, _nativeInput, action);
         if (externalClosePath == "native") {
             zfeLog("info", "input", "native session closed for external action " + action);
@@ -1717,9 +1723,21 @@ class FCMChatWidget extends MovieClip {
         return merged;
     }
 
+    function pipboyOwnsInput():Bool {
+        return flash.Lib.getTimer() < _pipboyTransitionUntil
+            || FcmRoster.hasPipboy(uiData(getBSUIData(_rosterManager, "MenuStackData")));
+    }
+
+    function releaseInputForPipboy():Void {
+        if (!_inputOpen || !pipboyOwnsInput()) return;
+        if (_nativeInput) closeInputNative();
+        else closeInputSharedHudTools("PipBoy menu active");
+    }
+
     function openInput():Void {
         if (_disposed) return;
         if (_inputOpen) return;
+        if (pipboyOwnsInput()) return;
         // A navigation key may have been held across the Insert edge. Start each edit with a
         // clean latch so its key-up cannot select a channel or steal the first typed character.
         clearNavigationLatches();
@@ -1958,6 +1976,7 @@ class FCMChatWidget extends MovieClip {
      * widget state first and does not submit the draft.
      */
     function resetSharedInputState():Void {
+        _inputGeneration++;
         _inputOpen = false;
         _inProgress = "";
         clearNavigationLatches();
@@ -2015,6 +2034,7 @@ class FCMChatWidget extends MovieClip {
         var editW:Float = _cfg.width - 12;
         var editH:Float = INPUT_H - 6;
         var textEditStarted:Bool = false;
+        var generation:Int = ++_inputGeneration;
 
         try {
             var formatEdit:Dynamic = Reflect.field(_hudTools, "FormatTextEdit");
@@ -2040,8 +2060,11 @@ class FCMChatWidget extends MovieClip {
 
             // ── Step 3: TextEdit — open the entry; callback fires on submit ──────
             textEditStarted = true;
-            Reflect.callMethod(_hudTools, textEdit,
-                [function(text:Dynamic):Void { onInputSubmitSafely(text); }, ""]);
+            var accepted:Dynamic = Reflect.callMethod(_hudTools, textEdit,
+                [function(text:Dynamic):Void {
+                    if (FcmCommand.acceptsInputCallback(_inputOpen, _inputGeneration, generation)) onInputSubmitSafely(text);
+                }, ""]);
+            if (accepted == false) throw "SharedHUDTools rejected TextEdit";
             // HUDTools renders its own focused entry field at this exact input position.
             // Do not mirror that same field into _promptTf, or every character appears twice.
             setPrompt(typingPrompt());
@@ -2175,7 +2198,7 @@ class FCMChatWidget extends MovieClip {
     }
 
     function isVisibleModerationRecord(rec:ChatRecord, activeChannel:String):Bool {
-        return rec.channel == activeChannel
+        return FcmCommand.channelVisible(activeChannel, rec.channel)
             && rec.messageId != null && rec.messageId.length >= 8
             && rec.senderUserId != null && rec.senderUserId.length > 0;
     }
@@ -2425,7 +2448,7 @@ class FCMChatWidget extends MovieClip {
             zfeLog("warn", "send", "send timer isolated: " + clip200(Std.string(err)));
             try { removeOptimisticRecord(localSendId); } catch (_:Dynamic) {}
             try {
-                if (slug == CHAN_SLUGS[_chanIdx]) renderRecords();
+                if (FcmCommand.channelVisible(CHAN_SLUGS[_chanIdx], slug)) renderRecords();
             } catch (_:Dynamic) {}
         }
     }
@@ -2435,13 +2458,13 @@ class FCMChatWidget extends MovieClip {
             localUserId:String):Void {
         if (_api == null || !_connected) {
             removeOptimisticRecord(localSendId);
-            if (slug == CHAN_SLUGS[_chanIdx]) renderRecords();
+            if (FcmCommand.channelVisible(CHAN_SLUGS[_chanIdx], slug)) renderRecords();
             zfeLog("warn", "send", "not connected; cannot send");
             return;
         }
         if (_authState != "authenticated") {
             removeOptimisticRecord(localSendId);
-            if (slug == CHAN_SLUGS[_chanIdx]) renderRecords();
+            if (FcmCommand.channelVisible(CHAN_SLUGS[_chanIdx], slug)) renderRecords();
             zfeLog("warn", "send", "send blocked; authState=" + _authState + " (account not linked)");
             setLogText(linkHint());
             return;
@@ -2454,7 +2477,7 @@ class FCMChatWidget extends MovieClip {
             // control-character-only draft must remove that exact transaction rather than
             // leaving a permanent phantom message in the feed.
             removeOptimisticRecord(localSendId);
-            if (slug == CHAN_SLUGS[_chanIdx]) renderRecords();
+            if (FcmCommand.channelVisible(CHAN_SLUGS[_chanIdx], slug)) renderRecords();
             return;
         }
 
@@ -2466,7 +2489,7 @@ class FCMChatWidget extends MovieClip {
                 ? ("Server chat is unavailable: " + _serverSessionError)
                 : "Server chat is initializing...");
             removeOptimisticRecord(localSendId);
-            if (slug == CHAN_SLUGS[_chanIdx]) renderRecords();
+            if (FcmCommand.channelVisible(CHAN_SLUGS[_chanIdx], slug)) renderRecords();
             zfeLog("warn", "server", "ordinary send blocked; session not ready");
             return;
         }
@@ -2536,7 +2559,7 @@ class FCMChatWidget extends MovieClip {
                 scheduleEchoPoll();
             } else {
                 removeOptimisticRecord(localSendId);
-                if (slug == CHAN_SLUGS[_chanIdx]) renderRecords();
+                if (FcmCommand.channelVisible(CHAN_SLUGS[_chanIdx], slug)) renderRecords();
                 // Surface the relay error code to the user.
                 var code:String = extractJsonString(rs, "code");
                 // Failure only: the untruncated response. This is the line that finally exposed
@@ -2586,7 +2609,7 @@ class FCMChatWidget extends MovieClip {
             }
         } catch (e:Dynamic) {
             removeOptimisticRecord(localSendId);
-            if (slug == CHAN_SLUGS[_chanIdx]) renderRecords();
+            if (FcmCommand.channelVisible(CHAN_SLUGS[_chanIdx], slug)) renderRecords();
             zfeLog("warn", "send", "sendMessage threw: " + Std.string(e));
             setLogText("Send failed (no relay).");
         }
@@ -3083,6 +3106,7 @@ class FCMChatWidget extends MovieClip {
     }
 
     function pollPhysicalNavigation():Void {
+        releaseInputForPipboy();
         if (_disposed || !_physicalNavReady || _api == null) return;
         for (keyCode in _physicalNavRegistered) {
             // Page keys switch channels in either state. Feed-only keys remain ordinary game
@@ -3141,6 +3165,7 @@ class FCMChatWidget extends MovieClip {
 
     /** Open chat on a false->true edge of isChatKeyPressed. */
     function pollOpenKey():Void {
+        releaseInputForPipboy();
         if (_api == null || !_connected) return;
         try {
             // The OpenChatKey is the one configured key exposed by the top-level ZFE chat
@@ -3748,7 +3773,7 @@ class FCMChatWidget extends MovieClip {
         rec.pendingAt = 0;
         rec.sendAccepted = false;
         rememberOwnCosmetics(rec.tag, rec.supporterStar, rec.starColor);
-        if (channel == CHAN_SLUGS[_chanIdx]) renderRecords();
+        if (FcmCommand.channelVisible(CHAN_SLUGS[_chanIdx], channel)) renderRecords();
         return true;
     }
 
@@ -3816,7 +3841,7 @@ class FCMChatWidget extends MovieClip {
         });
         while (_records.length > _cfg.maxMessages) _records.shift();
         if (_bScrolling) _newWhileScrolled++;
-        if (channel == CHAN_SLUGS[_chanIdx]) renderRecords();
+        if (FcmCommand.channelVisible(CHAN_SLUGS[_chanIdx], channel)) renderRecords();
     }
 
     /** Apply the ACK to the exact transaction row; no text/identity search occurs here. */
@@ -3836,7 +3861,7 @@ class FCMChatWidget extends MovieClip {
                 rememberOwnCosmetics(tag, supporterStar, starColor);
             }
             rec.sendAccepted = true;
-            if (rec.channel == CHAN_SLUGS[_chanIdx]) renderRecords();
+            if (FcmCommand.channelVisible(CHAN_SLUGS[_chanIdx], rec.channel)) renderRecords();
             return true;
         }
         return false;
@@ -4000,7 +4025,7 @@ class FCMChatWidget extends MovieClip {
         _records = kept;
         _newWhileScrolled = 0;
         zfeLog("info", "history", "cleared server feed rows=" + removed + " reason=" + reason);
-        if (_chanIdx == 5) renderRecords();
+        if (FcmCommand.channelVisible(CHAN_SLUGS[_chanIdx], "server")) renderRecords();
     }
 
     /** Roster-derived world membership: send while observations are fresh. The SERVER tab is
@@ -4329,7 +4354,7 @@ class FCMChatWidget extends MovieClip {
 
         var visibleRecords:Array<ChatRecord> = [];
         for (rec in _records) {
-            if (rec.channel == CHAN_SLUGS[_chanIdx]) visibleRecords.push(rec);
+            if (FcmCommand.channelVisible(CHAN_SLUGS[_chanIdx], rec.channel)) visibleRecords.push(rec);
         }
         zfeLog("info", "render", "records=" + _records.length + " shown=" + visibleRecords.length
             + " layout=row-local tags=enabled tab=" + CHAN_SLUGS[_chanIdx]);

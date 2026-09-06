@@ -7,6 +7,18 @@ class FcmRoster {
         try { return untyped value[key]; } catch (e:Dynamic) { return null; }
     }
 
+    /** Read only the menu names already exposed to the HUD. */
+    public static function hasPipboy(data:Dynamic):Bool {
+        var menus:Dynamic = field(data, "menuStackA");
+        var length:Dynamic = field(menus, "length");
+        if (length == null) return false;
+        for (i in 0...Std.int(Math.min(128, Std.int(length)))) {
+            var name = field(menus[i], "menuName");
+            if (name != null && Std.string(name).toLowerCase().indexOf("pipboy") >= 0) return true;
+        }
+        return false;
+    }
+
     public static function isMainMenu(data:Dynamic):Bool {
         var menus:Dynamic = field(data, "menuStackA");
         var length:Dynamic = field(menus, "length");
