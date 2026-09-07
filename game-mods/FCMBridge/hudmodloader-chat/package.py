@@ -58,12 +58,19 @@ def install_instructions(target: str, provider: str = "zfe") -> str:
     provider_label = "xScal" if provider == "xscal" else "ZFE"
     config_file = "xscal.ini.example" if provider == "xscal" else "Data/ZFE/TextChat/fragments/FCMChatWidget.ini"
     provider_setup = (
-        "Merge the [Chat] section from xscal.ini.example into the existing xscal.ini beside\n"
-        "   the game executable. Preserve xScalPriority and all other sections."
+        "REQUIRED for xScal: double-click Enable-xScal-Chat.cmd in the game folder.\n"
+        "   It backs up xscal.ini, sets [Chat] enabled=true and this package's relayEndpoint,\n"
+        "   and preserves all other settings. xScal ships with chat disabled by default.\n"
+        "   Extracting the BA2 or xscal.ini.example alone does NOT enable chat.\n"
+        "   Linux/Proton or manual setup: edit the EXISTING [Chat] section in xscal.ini\n"
+        "   beside Fallout76.exe using xscal.ini.example: change enabled=false to enabled=true\n"
+        "   and set relayEndpoint to the value below. Do not add a second [Chat] section.\n"
+        "   Preserve xScalPriority and all other sections, then restart Fallout 76."
         if provider == "xscal" else
         "The ZFE TextChat fragment supplies the relay endpoint and OpenChatKey. Keep\n"
         "   FCMChat.ini openKey aligned with that key and any Data/configuration/zfe.ini override."
     )
+    setup_files = "   Enable-xScal-Chat.cmd\n   Enable-xScal-Chat.ps1\n" if provider == "xscal" else ""
     return f"""Fallout Chat Mod - optional in-game HUD chat ({config['label']})
 
 FCMChatWidget version: {version}
@@ -86,7 +93,7 @@ RESYNC recovery if static history is missing or the native queue reports loss.
    Data/FCMChatWidget.ba2
    Data/FCMChat.ini
    {config_file}
-   FCMChatWidget.hudmodloader.ini
+{setup_files}   FCMChatWidget.hudmodloader.ini
    FCMChatWidget.version.txt
    FCMChatWidget.provider.txt
    HUDMODLOADER-MENU.txt
@@ -245,6 +252,11 @@ def build_package(target: str, output: Path, provider: str = "zfe") -> None:
         archive.writestr("FCMChatWidget.provider.txt", provider + "\n")
         if provider == "xscal":
             archive.writestr("xscal.ini.example", xscal_config_example(target))
+            setup = (ROOT / "Enable-xScal-Chat.ps1").read_text(encoding="ascii")
+            archive.writestr("Enable-xScal-Chat.ps1", setup.replace("@@FCM_RELAY_ENDPOINT@@", TARGETS[target]["endpoint"]))
+            archive.writestr("Enable-xScal-Chat.cmd",
+                '@echo off\r\npowershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0Enable-xScal-Chat.ps1"\r\n'
+                'set "fcmExitCode=%errorlevel%"\r\npause\r\nexit /b %fcmExitCode%\r\n')
         archive.write(widget_artifact, "Data/FCMChatWidget.ba2")
         archive.writestr("Data/FCMChat.ini", chat_ini)
         if provider == "zfe":

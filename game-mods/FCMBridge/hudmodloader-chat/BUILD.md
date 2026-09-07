@@ -485,7 +485,16 @@ checks have passed on the intended environment.
 and `python3 package.py --target dev --provider xscal --output /tmp/xscal.zip`
 package the same auto-detecting BA2. The default provider is ZFE for existing release scripts.
 Only ZFE includes `Data/ZFE/TextChat/fragments/FCMChatWidget.ini`; only xScal includes
-`xscal.ini.example`. Merge the example into existing xScal settings; never overwrite them.
+`xscal.ini.example` and `Enable-xScal-Chat.cmd` / `.ps1`. After extracting into the
+game folder with Fallout 76 closed, run the CMD helper on Windows. It backs up the
+existing `xscal.ini`, changes `[Chat] enabled=false` to `enabled=true`, stamps the
+package relay endpoint, and preserves unrelated settings, encoding and line endings.
+Repeated runs are idempotent; duplicate `[Chat]` sections fail without writing.
+On Linux/Proton, edit those two keys in the existing `[Chat]` section using the example.
+Never replace the full xScal INI. Extraction alone does not enable xScal chat.
+BA2-only update archives assume extender configuration is already enabled; use the
+provider setup package for first installs or disabled-chat configurations.
+The setup regression suite runs in the required native Windows CI job.
 `FCMChatWidget.provider.txt` records the setup target, not a binary runtime restriction.
 
 xScal physical navigation uses the generic callback's `Input.RegisterKey`,

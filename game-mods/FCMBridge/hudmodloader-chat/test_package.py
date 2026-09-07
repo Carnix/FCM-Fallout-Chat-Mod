@@ -142,7 +142,15 @@ def main() -> None:
                     assert "FCMChatWidget.version.txt" in names
                     assert ("xscal.ini.example" in names) == (provider == "xscal")
                     assert archive.read("FCMChatWidget.provider.txt") == (provider + "\n").encode()
+                    assert ("Enable-xScal-Chat.ps1" in names) == (provider == "xscal")
+                    assert ("Enable-xScal-Chat.cmd" in names) == (provider == "xscal")
                     if provider == "xscal":
+                        assert b"[Chat]\nenabled=true\n" in archive.read("xscal.ini.example")
+                        setup = archive.read("Enable-xScal-Chat.ps1")
+                        assert b"@@FCM_RELAY_ENDPOINT@@" not in setup
+                        assert expected["endpoint"].encode() in setup
+                        assert b"Enable-xScal-Chat.cmd" in archive.read("INSTALL.txt")
+                        assert b"enabled=false to enabled=true" in archive.read("INSTALL.txt")
                         assert not any(n.lower().startswith("data/zfe/") for n in names)
                     assert "Data/hudmodloader.ini" not in names
                     assert "INSTALL.txt" in names

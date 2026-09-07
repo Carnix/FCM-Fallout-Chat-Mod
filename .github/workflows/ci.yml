@@ -461,6 +461,8 @@ jobs:
       - name: Build renderer
         run: npm run build:renderer
         working-directory: cross-platform-overlay
+      - name: Verify xScal HUD configuration setup
+        run: '& ./game-mods/FCMBridge/hudmodloader-chat/test-xscal-setup.ps1'
       - name: Build Windows NSIS package (native)
         run: npx electron-builder --win nsis --publish=never
         working-directory: cross-platform-overlay

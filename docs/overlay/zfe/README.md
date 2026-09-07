@@ -239,3 +239,13 @@ broadcast server chat to other worlds or to the public Discord General channel.
 PipBoy releases the HUD editor and blocks reopening during transition/while the UI menu
 is present. Late callbacks from a released editor are ignored. Both ZFE and xScal share
 this implementation; live simultaneous-input testing is required on each provider.
+
+### xScal package setup
+
+xScal can ship with `[Chat] enabled=false`. The xScal setup ZIP includes
+`Enable-xScal-Chat.cmd` and `.ps1`: close Fallout 76, extract into the game folder,
+and run the CMD helper. It backs up and edits the existing `xscal.ini`, enables chat,
+and selects the package relay endpoint without replacing unrelated settings.
+Linux/Proton users should merge the example's `enabled=true` and `relayEndpoint`
+into the existing `[Chat]` section manually. Merely extracting the BA2 or the INI
+example does not enable chat. ZFE packages contain neither this helper nor xScal settings.
