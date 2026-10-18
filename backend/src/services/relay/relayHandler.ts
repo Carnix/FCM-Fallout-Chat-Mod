@@ -1328,6 +1328,14 @@ async function handleSend(ws: WebSocket, frame: Record<string, unknown>): Promis
     return;
   }
 
+  // Supported controls above return before reaching ordinary chat. A newer HUD
+  // may send controls this relay does not implement (e.g. NAMEPLATES); never
+  // publish those, malformed controls, or future protocol versions as player text.
+  if (body.startsWith('FCMCTL/')) {
+    await deliver(errEnvelope('invalid_request', 'Unsupported or invalid relay control'));
+    return;
+  }
+
   if (user?.isMuted) {
     await deliver(errEnvelope('user_muted', 'You are currently muted'));
     return;
