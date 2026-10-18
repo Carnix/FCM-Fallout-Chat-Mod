@@ -2454,7 +2454,7 @@ describe('authenticated world controls', () => {
     ws.close();
   });
 
-  test('malformed worldId control falls through to the normal server-channel guard', async () => {
+  test('malformed worldId control is rejected before ordinary chat', async () => {
     const { ws: wsReg, msgs: msgsReg } = await connectWs(srv2.port);
     const regRes = await waitForMsg(wsReg, msgsReg, () =>
       wsReg.send(JSON.stringify({ op: 'register', displayName: 'HmacFail' })),
@@ -2469,8 +2469,7 @@ describe('authenticated world controls', () => {
     const res = await waitForMsg(ws, msgs, () =>
       ws.send(JSON.stringify({ op: 'send', token, channel: 'server', body: badBody })),
     );
-    // Falls through: no worldId in Redis → invalid_channel
-    expect(res).toMatchObject({ success: false, error: { code: 'invalid_channel' } });
+    expect(res).toMatchObject({ success: false, error: { code: 'invalid_request' } });
     ws.close();
   });
 
@@ -2490,8 +2489,7 @@ describe('authenticated world controls', () => {
     const res = await waitForMsg(ws, msgs, () =>
       ws.send(JSON.stringify({ op: 'send', token, channel: 'server', body: staleBody })),
     );
-    // Falls through: no worldId in Redis → invalid_channel
-    expect(res).toMatchObject({ success: false, error: { code: 'invalid_channel' } });
+    expect(res).toMatchObject({ success: false, error: { code: 'invalid_request' } });
     ws.close();
   });
 });
@@ -2557,6 +2555,93 @@ describe('server chat (worldId-scoped room)', () => {
   }
   const sendJoin  = (user, worldId) => sendCtrl(user, makeJoinBody(worldId));
   const sendLeave = (user)          => sendCtrl(user, makeLeaveBody());
+
+  test('unsupported native controls never become chat or Server history', async () => {
+    const a = await registerAndLink('ControlSender', 'fcm-control-sender');
+    await sendJoin(a, 'control-room');
+    const { ws, msgs } = await connectWs(srv.port);
+    const ingest = require('../src/services/ingestMessage').ingestMessage;
+    ingest.mockClear();
+    redisMock.publish.mockClear();
+    try {
+      // A newer HUD periodically submits this request to older production relays.
+      // An active room is essential: without one the old code rejects ordinary chat too.
+      for (const channel of ['server', 'global']) {
+        for (const body of [
+          'FCMCTL/1/NAMEPLATES;{',
+          'FCMCTL/1/FUTURE;{}',
+          'FCMCTL/2/NAMEPLATES;{}',
+          'FCMCTL/1/WORLD:world-x|unexpected-field',
+        ]) {
+          const res = await waitForMsg(ws, msgs, () => send(ws, { op: 'send', token: a.token, channel, body }));
+          expect(res).toMatchObject({ success: false, error: { code: 'invalid_request' } });
+        }
+      }
+      expect(ingest).not.toHaveBeenCalled();
+      expect(_lists['relay:serverchat:control-room'] ?? []).toEqual([]);
+      expect(redisMock.publish).not.toHaveBeenCalled();
+    } finally { ws.close(); }
+  });
+
+  test('repeated HUD and bridge nameplate requests stay private while two-client chat still works', async () => {
+    const a = await registerAndLink('NameplateSender', 'fcm-nameplate-sender');
+    const b = await registerAndLink('NameplateObserver', 'fcm-nameplate-observer');
+    const connections = [];
+    const open = async () => { const c = await connectWs(srv.port); connections.push(c); return c; };
+    const serverEvents = c => c.msgs.filter(m => m.op === 'event' && m.event?.channel === 'server').map(m => m.event);
+    const waitForBody = (c, body) => new Promise((resolve, reject) => {
+      const check = () => {
+        if (!serverEvents(c).some(event => event.body === body)) return;
+        clearTimeout(timeout); c.ws.off('message', check); resolve();
+      };
+      const timeout = setTimeout(() => {
+        c.ws.off('message', check); reject(new Error('Server message was not delivered'));
+      }, 2000);
+      c.ws.on('message', check); check();
+    });
+    try {
+      expect(await sendJoin(a, 'nameplate-simulation')).toMatchObject({ success: true });
+      expect(await sendJoin(b, 'nameplate-simulation')).toMatchObject({ success: true });
+      const sender = await open(), observer = await open(), rpc = await open();
+      for (const [client, account] of [[sender, a], [observer, b]]) {
+        expect(await waitForMsg(client.ws, client.msgs, () => send(client.ws,
+          { op: 'subscribe', token: account.token, cursor: 0 }))).toMatchObject({ success: true });
+      }
+      // Accelerate a sustained renewal loop into a burst, mixing both request
+      // modes and clean/padded provider wire encodings. No real game or prod I/O.
+      for (let i = 0; i < 60; i++) {
+        const request = i % 2 === 0
+          ? { mode: 'hud', requestId: `simulation-${i}`, nativeRequestId: 'world-1' }
+          : { mode: 'bridge', requestId: `simulation-${i}`, sessionId: 'movie-1', worldGeneration: 'world-1' };
+        const wire = value => i % 3 === 0 ? value.split('').join('u0000') : value;
+        const response = await waitForMsg(rpc.ws, rpc.msgs, () => send(rpc.ws,
+          { op: 'send', token: a.token, channel: wire('server'), body: wire('FCMCTL/1/NAMEPLATES;' + JSON.stringify(request)) }));
+        // Older relays reject the unsupported request; newer relays may handle
+        // it privately or apply their independent cosmetic rate limit. Neither
+        // response may acknowledge a public Server message.
+        if (response?.success === true) {
+          expect(response.messageId).toEqual(expect.any(String));
+          expect(response.messageId).not.toMatch(/^server:/);
+        } else {
+          expect(response?.error?.code).toMatch(/^(invalid_request|rate_limited)$/);
+        }
+      }
+      expect(_lists['relay:serverchat:nameplate-simulation'] ?? []).toEqual([]);
+      // Ordinary bidirectional chat is a positive delivery barrier as well as
+      // proof the rejected requests consumed neither chat nor world-control budgets.
+      expect(await sendJoin(a, 'nameplate-simulation')).toMatchObject({ success: true });
+      expect(await sendCtrl(a, 'hello after nameplate requests')).toMatchObject({ success: true });
+      await Promise.all([sender, observer].map(c => waitForBody(c, 'hello after nameplate requests')));
+      expect(await sendCtrl(b, 'reply after nameplate requests')).toMatchObject({ success: true });
+      await Promise.all([sender, observer].map(c => waitForBody(c, 'reply after nameplate requests')));
+      const expected = ['hello after nameplate requests', 'reply after nameplate requests'];
+      for (const c of [sender, observer]) expect(serverEvents(c).map(event => event.body)).toEqual(expected);
+      const history = await waitForMsg(rpc.ws, rpc.msgs, () => send(rpc.ws,
+        { op: 'poll', token: b.token, cursor: 0, max: 50 }));
+      expect(history).toMatchObject({ success: true });
+      expect(history.events.filter(event => event.channel === 'server').map(event => event.body)).toEqual(expected);
+    } finally { for (const c of connections) c.ws.close(); }
+  }, 15000);
 
   test('HUD layout survives reconnect, stays device-scoped, and never becomes chat', async () => {
     const a = await registerAndLink('LayoutA', 'fcm-layout-shared');
