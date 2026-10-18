@@ -1,5 +1,40 @@
 # Server room continuity
 
+## Reserved native controls and version mismatches
+
+The relay handles supported `FCMCTL/1/` controls privately before ordinary chat.
+Any remaining body beginning `FCMCTL/` is rejected with `invalid_request` on every
+channel, including malformed known controls and unsupported protocol versions.
+It never enters Server publication/history or static-channel ingestion. Supported
+world, roster, layout, diagnostics, browser-link and history controls retain their
+existing authentication and rate limits.
+
+A newer HUD's periodic `FCMCTL/1/NAMEPLATES;{...}` requests previously fell through
+to ordinary Server sends on production backends without the nameplate handler.
+This produced repeated player-authored protocol messages for everyone in the room.
+The compatibility guard stops new messages without enabling blue nameplates or
+requiring overlay/HUD updates. Deploy the backend guard first; only enable the
+nameplate feature after its private backend handler is deployed and verified.
+Existing rows already delivered to clients are not retracted by this change.
+
+For an immediate client-side mitigation on a HUD build that supports the setting,
+set `blueNameplates=false` in `Data/FCMChat.ini` and restart the game so the widget
+reloads its configuration. The screenshot's `"mode":"hud"` identifies a visible
+HUD request; it does not by itself establish which bridge versions are installed.
+For bridge testers, use the published export-only bridge rather than the newer
+nameplate candidate until the matching backend is ready. The desktop overlay reads
+these leaked messages from Server chat; reinstalling it does not fix the sender.
+
+The regression in `backend/tests/relayHandler.test.js` runs a real localhost
+`/relay` WebSocket server with two subscribed clients in the same room. It sends
+60 accelerated HUD/bridge nameplate requests, including ZFE's padded wire encoding,
+then verifies bidirectional exactly-once chat and clean poll history. Rejected
+requests cannot exhaust the normal chat or world-control budgets. Prisma and Redis
+are mocked in this harness; it does not establish deployed-backend or native
+ZFE/xScal/GFx acceptance.
+
+## Room affinity
+
 The shared native HUD/desktop bridge coordinator retains server-generated room
 affinity on each live roster session. Peer departure no longer changes the
 survivor's canonical room/history key simply because the departed peer was the
