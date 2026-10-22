@@ -1,5 +1,14 @@
-FCM HUD 2.10.138 test candidate
+FCM HUD 2.10.151 DEV test candidate
 ==============
+
+Dev integration and stationary names
+-----------------------------------
+Includes the latest Dev flood-cooldown retry handling together with the blue-name
+stability work from 2.10.150. An already admitted visible name can remain blue
+while its exact identity, eligibility and private presence remain current.
+Hiding, recycling, renaming, becoming ineligible or losing private presence
+retires that association. Expired observations cannot acquire it again.
+This is a DEV testing build; native stability acceptance remains pending.
 
 Blue FCM names
 --------------
