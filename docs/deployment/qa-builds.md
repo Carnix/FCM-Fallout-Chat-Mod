@@ -48,9 +48,11 @@ npm run dist:qa
 Produces `dist-electron/Fallout Chat Mod QA-<version>.AppImage` + `.deb` and prints the
 line to bless, e.g. `QA_ACTIVE_VERSION=1.3.91-qa.20260626014530`.
 
-**Windows** (Wine cannot build Electron 31+, so use the self-hosted runner): run the
+**Windows** (build natively on Windows): run the
 **Build Windows QA** workflow — GitHub Actions -> *Build Windows QA* -> *Run workflow*
-(`workflow_dispatch`, owner-only, runs on `[self-hosted, windows, unn]`). It runs
+(`workflow_dispatch`, owner-only, defaults to `windows-latest`). Set the optional
+`QA_RUNNER_WINDOWS` repository variable to a JSON runner-label list to use a
+maintainer's self-hosted Windows runner instead. It runs
 `dist:qa` and uploads the unsigned-by-intent NSIS installer + portable `.exe` as the
 artifact `fcm-overlay-qa-windows`.
 
@@ -58,6 +60,11 @@ Before upload, the workflow disables certificate auto-discovery, requires at lea
 non-trivial `.exe`, checks a pinned input version in every filename, and rejects retired
 auto-update files (`latest*.yml`, `app-update.yml`, or blockmaps). This is an artifact-integrity
 gate, not a substitute for installing and smoke-testing the build with a QA tester.
+
+Before uploading, Windows QA also verifies the embedded channel, version and QA
+product identity, then runs `Packaging/smoke-test.ps1 -Artifact QA` against the
+packaged QA executable. The launch must produce healthy startup markers without
+missing-module or uncaught errors; teardown targets only that launched PID tree.
 
 ```bash
 gh workflow run build-windows-qa.yml --ref dev -f version=<optional-pinned-version>
@@ -72,6 +79,12 @@ To ship Linux **and** Windows as ONE golden build, pin the same version on both 
 FCM_BUILD_VERSION=1.3.91-qa.20260626 npm run dist:qa        # Linux
 gh workflow run build-windows-qa.yml --ref dev -f version=1.3.91-qa.20260626   # Windows
 ```
+
+The 2026-10-06 blue-name testing candidate pins both platforms to **1.4.3**.
+Use `FCM_BUILD_VERSION=1.4.3` locally and `-f version=1.4.3` for Windows;
+bless `1.4.3` only after both build artifacts have passed their checks. Its HUD
+and Server Bridge versions and native acceptance matrix are recorded in
+[the test report](../testing/blue-nameplates-2026-10-06.md).
 
 ### 2. Bless (make it the active golden build)
 
@@ -111,6 +124,13 @@ prompt and reinstall. No separate de-list step.
   `-c.extraMetadata.fcmChannel=qa` (packed `package.json`, read by `main.js` to target dev +
   the QA login), `-c.extraMetadata.version=<version>`, and `productName "Fallout Chat Mod QA"`
   (distinct from the stable build, so both can coexist on one machine).
+- QA also stamps that product name into the packed metadata so Electron uses its
+  separate settings profile. The Windows app ID, shortcut and installer hook are
+  QA-specific; the hook stops only `Fallout Chat Mod QA.exe`. Linux uses
+  `fallout-chat-mod-qa`, `fallout-chat-mod-qa.desktop` and the separate
+  `fallout-chatmod-qa` Debian package. `qaBuildOverrides` tests and packaged metadata
+  checks cover these distinctions. Before 1.4.3, the builder's filename override
+  alone did not reliably isolate the embedded app identity.
 - **Signing:** QA builds are unsigned by intent (testers are vetted; QA builds are never
   published to the release registry or Nexus). On the Windows runner electron-builder's
   default certificate auto-discovery may still invoke `signtool` with a cert in the runner's
@@ -119,6 +139,13 @@ prompt and reinstall. No separate de-list step.
 
 ## Troubleshooting
 
+- **Browser says "QA access granted", but the app later returns to a login error:**
+  QA uses background polling, not a browser-to-app protocol link. Reloading or
+  retrying retires earlier polls; successful login also retires pending callbacks,
+  so an older poll cannot overwrite it with a timeout or restore a session after
+  logout. Check the app's `main.log` for `[qa-login] waiting for browser authorization`
+  followed by `[qa-status] authenticated`. Repeated HTTP 429 responses mean the
+  backend request allowance is exhausted; avoid repeated retries while it resets.
 - **Tester can't connect / "update required":** their build's version != `QA_ACTIVE_VERSION`.
   Re-bless or redistribute the current build. Confirm: `GET /api/admin/qa/active-version`.
 - **"You need the QA role":** the account lacks the `QA` role in the **dev** guild.

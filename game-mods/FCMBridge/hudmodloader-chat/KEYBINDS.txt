@@ -1,6 +1,26 @@
 Fallout Chat Mod HUD keybinds
 ============================
 
+CHANNEL SHORTCUTS (HUD 2.10.137+)
+--------------------------------
+Open chat with your configured open key (Insert by default), type, then press Enter.
+
+  Channel    Switch tab only    Send without changing your current tab
+  General    g                  /g <message>
+  Trading    t                  /t <message>
+  Events     e                  /e <message>
+  Infests    i                  /i <message>
+  Raids      r                  /r <message>
+  Server     s                  /s <message>
+
+For example, t followed by Enter selects Trading without sending a message.
+/t looking for plans sends to Trading while you stay on General. /e event starting
+sends to Events without changing tabs. Plain messages go to your selected tab.
+A prefix without a message does not switch tabs or send anything. No setting is required.
+Dot forms such as .t message and full-name aliases such as /trading message also work.
+Server selection and sending require a confirmed current Server chat session;
+an unavailable Server message is never redirected into a community channel.
+
 PROVIDER KEYBIND CONTRACT
 -------------------------
 One FCMChatWidget.ba2 serves both providers, but the open-key source is different:
@@ -148,6 +168,13 @@ The shipped value is Insert. To rebind xScal to period, set `openKey=PERIOD`;
 to use Delete, set `openKey=DELETE`. For a common
 policy across both providers, also set ZFE's `OpenChatKey=DELETE`; that key never belongs in
 xscal.ini.
+
+The Nexus DLSS and FSR Framegen Plugin for xScal (mod 4256, file 0.2.5) also
+opens its settings menu with Insert. If both menus open, press Escape to leave
+FCM input and operate the framegen menu, then Escape again when finished. To
+avoid the shared shortcut, change this file's `openKey` to an unused key such as
+`PERIOD` and restart the game. The plugin's shipped Fallout76_NX.ini has no
+menu-key setting. Do not change xscal.ini for FCM keybinds.
 
 The widget registers the selected key on xScal and opens chat on its physical down edge, even
 when HUDModLoader reports the key as Unmapped. The named HUDMod::UserEvent path remains as a

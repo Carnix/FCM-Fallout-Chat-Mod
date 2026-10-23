@@ -423,3 +423,16 @@ moderation, account flood-limit, cosmetics and single-publication path. `serverC
 the ephemeral Redis room store; failed writes/publication now reject rather than return success.
 See [background bridge](../overlay/zfe/background-server-bridge.md) for the full contract and
 local-candidate deployment status. No database migration or new environment variables are needed.
+
+Human `relay` command results may include an internal `cancelCooldown` callback.
+Adapters call it only when publication is rejected by shared chat slowmode. It
+releases that exact command reservation without clearing a later reservation;
+it is never part of the public wire payload.
+
+`chatSlowmodeService.ts` owns the shared adaptive flood guard: three submissions
+per rolling thirty seconds, escalating 35–300-second waits, a sixty-attempt rolling
+minute hard cap, and a fifteen-minute penalty reset. One atomic Redis operation
+uses bounded arrays and versioned `chat_slowmode:v2:*` keys across replicas.
+Channel/Server callers select `engineEvaluate(..., { spamPolicy: 'shared-chat' })`
+to replace the legacy one-hour spam penalty while preserving content moderation.
+See [the flood policy](../moderation/chat-slowmode.md) for scope and retry semantics.

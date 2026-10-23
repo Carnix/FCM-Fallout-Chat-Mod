@@ -10,6 +10,28 @@ class TestFcmCommand {
     }
 
     static function main():Void {
+        var aliases = [["g", "gen", "general"], ["t", "trade", "trading"],
+            ["e", "event", "events"], ["i", "inf", "infests"], ["r", "raid", "raids"], ["s", "server"]];
+        for (idx in 0...aliases.length) for (alias in aliases[idx]) {
+            for (prefix in ["/", "."]) {
+                var send = FcmCommand.channelSubmission("  " + prefix + alias.toUpperCase() + "  hello world  ");
+                check("prefixed channel destination " + prefix + alias,
+                    send.handled && send.channelIndex == idx && send.body == "hello world" && !send.selectTab);
+                var empty = FcmCommand.channelSubmission(prefix + alias);
+                check("prefix without body never navigates " + prefix + alias,
+                    empty.handled && empty.body == "" && !empty.selectTab);
+            }
+            var bare = FcmCommand.channelSubmission(alias);
+            check("bare alias navigates " + alias,
+                bare.handled && bare.channelIndex == idx && bare.body == "" && bare.selectTab);
+        }
+        var tabs = FcmCommand.channelSubmission("/t\thello");
+        check("tab separator", tabs.handled && tabs.channelIndex == 1 && tabs.body == "hello" && !tabs.selectTab);
+        for (text in ["t hello", "trade with me", "ordinary message", "/unknown hi", ".thing", "", null]) {
+            var ordinary = FcmCommand.channelSubmission(text);
+            check("ordinary input is not a destination: " + text, !ordinary.handled && ordinary.channelIndex == -1);
+        }
+        check("emoji payload kept for downstream resolver", FcmCommand.channelSubmission("/i /emoji heart").body == "/emoji heart");
         check("released editor callback is ignored", !FcmCommand.acceptsInputCallback(false, 2, 1));
         check("old editor cannot close replacement", !FcmCommand.acceptsInputCallback(true, 3, 1));
         check("current editor may submit", FcmCommand.acceptsInputCallback(true, 3, 3));
@@ -57,11 +79,16 @@ class TestFcmCommand {
             && hudHelp.indexOf("/ss — Sinkhole Solutions") < 0);
         check("event help accepts slash-stripped text", FcmEventCommands.isHelp("event help"));
         check("event help does not consume channel switch", !FcmEventCommands.isHelp("event"));
-        check("slash event still switches channels", !FcmEventCommands.isHelp("/event"));
-        check("event help lists all seeded shortcuts", FcmEventCommands.entries.length == 33
+        check("slash event is not a help command", !FcmEventCommands.isHelp("/event"));
+        check("event help lists all seeded shortcuts", FcmEventCommands.entries.length == 34
             && FcmEventCommands.help().indexOf("/sbq — Scorched Earth") >= 0
             && FcmEventCommands.help().indexOf("/gu — Gearing Up") >= 0
             && FcmEventCommands.help().indexOf("/ss — Sinkhole Solutions") >= 0);
+        check("sos means Swarm of Suitors", FcmEventCommands.help().indexOf("/sos — Swarm of Suitors") >= 0
+            && FcmEventCommands.help().indexOf("/sos — Surface to Air") < 0
+            && FcmEventCommands.command("/event sos") == "/sos");
+        check("sts means Surface to Air", FcmEventCommands.help().indexOf("/sts — Surface to Air") >= 0
+            && FcmEventCommands.command("/event sts") == "/sts");
         for (entry in FcmEventCommands.entries) {
             var code = entry.split("|")[0];
             check("event slash restored " + code, FcmEventCommands.command(code) == "/" + code);
@@ -223,9 +250,21 @@ class TestFcmCommand {
         check("unsafe synchronous transport suppresses automatic roster work",
             !FcmCommand.shouldSendRoster(false, false, 60000, false));
         check("ready roster does not renew before the boundary",
-            !FcmCommand.shouldSendRoster(true, true, 29999, true));
-        check("ready roster renews only at the keepalive boundary",
-            FcmCommand.shouldSendRoster(true, true, 30000, true));
+            !FcmCommand.shouldSendRoster(true, true, 9999, true));
+        check("ready roster reports before cosmetic evidence expires",
+            FcmCommand.shouldSendRoster(true, true, 10000, true));
+        // Five-second timer drift and async delivery must leave time for the
+        // next private reply inside the backend's 30-second observation bound.
+        var rosterSentAt:Float = 0;
+        var rosterMaxGap:Float = 0;
+        for (pollAt in [5001.0, 10002.0, 15003.0, 20004.0, 25005.0, 30006.0, 35007.0, 40008.0]) {
+            if (FcmCommand.shouldSendRoster(true, true, pollAt - rosterSentAt, true)) {
+                rosterMaxGap = Math.max(rosterMaxGap, pollAt - rosterSentAt);
+                rosterSentAt = pollAt;
+            }
+        }
+        check("poll drift and private reply delay stay inside cosmetic evidence deadline",
+            rosterMaxGap > 0 && rosterMaxGap + 1000 + 5000 + 1000 < 30000);
         check("unconfirmed roster retries only after its retry boundary",
             !FcmCommand.shouldSendRoster(true, false, 9999, true)
             && FcmCommand.shouldSendRoster(true, false, 10000, true));

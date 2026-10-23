@@ -1,5 +1,7 @@
 """Build both endpoint variants and verify archive contents plus exact SWF payloads."""
 import json
+import subprocess
+import sys
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
@@ -15,6 +17,9 @@ class BridgePackageTests(unittest.TestCase):
                 with self.subTest(target=target):
                     path = root / f'{target}.zip'
                     manifest = package.build(target, path)
+                    if target == 'prod':
+                        subprocess.run([sys.executable, str(package.ROOT.parents[2] / 'Packaging/qc2-package-contract.py'),
+                                        '--bridge', str(path)], check=True)
                     with ZipFile(path) as archive:
                         names = archive.namelist()
                         self.assertEqual(len(names), len(set(names)))
@@ -27,7 +32,9 @@ class BridgePackageTests(unittest.TestCase):
                         self.assertEqual(config['environment'], target)
                         self.assertIn(f'{target}-state.json', config['zfe'])
                         self.assertIn(f'fcmserverbridge-{target}.json', config['xscal'])
-                        self.assertFalse(any('TextChat' in n or 'xscal.ini' in n for n in names))
+                        self.assertIn('Provider-ZFE/Data/ZFE/TextChat/fragments/FCMServerBridge.ini', names)
+                        self.assertIn(f'Endpoint=wss://{host}/relay', archive.read('Provider-ZFE/Data/ZFE/TextChat/fragments/FCMServerBridge.ini').decode())
+                        self.assertIn(f'relayEndpoint=wss://{host}/relay', archive.read('Provider-xScal/xscal.ini').decode())
                         self.assertIn(f'https://{host}', archive.read('INSTALL.txt').decode())
                         install = archive.read('INSTALL.txt').decode()
                         self.assertIn('Extract this ZIP outside the Fallout 76 game folder', install)
@@ -37,8 +44,8 @@ class BridgePackageTests(unittest.TestCase):
                         self.assertIn('ZFE INSTALL', install)
                         self.assertIn('XSCAL INSTALL', install)
                         self.assertLess(install.index('ZFE INSTALL'), install.index('XSCAL INSTALL'))
-                        self.assertIn('Do not edit xscal.ini for the Server Bridge', install)
-                        self.assertIn('[Chat] enabled and\n   relayEndpoint settings are only for the visible FCM in-game HUD', install)
+                        self.assertIn('For blue names, merge Provider-xScal/xscal.ini', install)
+                        self.assertIn('Native chat can remain disabled', install)
                         self.assertNotIn('named load(name)', install)
                         self.assertNotIn('native-unverified test candidate', install)
                         ba2file = root / f'{target}.ba2'
@@ -77,6 +84,23 @@ class BridgePackageTests(unittest.TestCase):
             self.assertNotIn(text, source)
         self.assertIn('mouseEnabled = false', source)
         self.assertIn('mouseChildren = false', source)
+
+    def test_nameplate_probe_is_dev_only_and_keeps_the_normal_export(self):
+        with TemporaryDirectory() as root:
+            path = Path(root) / 'bridge-nameplate-probe.zip'
+            with self.assertRaisesRegex(ValueError, 'requires dev'):
+                package.build('prod', path, nameplate_diagnostic=True)
+            with self.assertRaisesRegex(ValueError, 'no other diagnostic mode'):
+                package.build('dev', path, diagnostic=True, nameplate_diagnostic=True)
+            self.assertFalse(path.exists())
+            subprocess.run(['haxe', 'test-export.hxml', '-D', 'bridge_nameplate_probe'],
+                           cwd=package.ROOT, check=True)
+            manifest = package.build('dev', path, nameplate_diagnostic=True)
+            with ZipFile(path) as archive:
+                self.assertTrue(manifest['nameplateDiagnostic'])
+                self.assertIn('NAMEPLATE DIAGNOSTIC TEST BUILD - NOT FOR RELEASE', archive.read('INSTALL.txt').decode())
+                self.assertEqual([name for name in archive.namelist() if name.startswith('Data/')],
+                                 ['Data/FCMServerBridge.ba2'])
 
     def test_native_prototype_is_separate_and_refuses_production(self):
         with TemporaryDirectory() as root:

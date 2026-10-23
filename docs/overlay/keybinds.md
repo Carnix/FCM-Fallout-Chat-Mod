@@ -119,6 +119,32 @@ configured scroll token has a Windows virtual-key mapping. The native loader exp
 `actionName`/`isDown` compatibility fields using accessor-aware reads.
 Configure them in `Data/FCMChat.ini` (`[FCMChat]` section).
 
+### HUD channel shortcuts
+
+HUD **2.10.137+** separates tab navigation from sending to another channel. Open chat
+with the configured open key, enter the text below, then press Enter.
+
+| Channel | Switch tab without sending | Send without switching tabs |
+| --- | --- | --- |
+| General | `g` | `/g <message>` |
+| Trading | `t` | `/t <message>` |
+| Events | `e` | `/e <message>` |
+| Infests | `i` | `/i <message>` |
+| Raids | `r` | `/r <message>` |
+| Server | `s` | `/s <message>` |
+
+`/t looking for plans` sends to Trading while General stays selected. `/e event starting`
+sends to Events the same way. Plain messages go to the selected tab. A prefix without a
+message neither selects a tab nor sends. Dot forms (`.t message`) and full-name aliases
+(`/trading message`) are accepted. No setting is required. Server selection and sending
+require a confirmed current Server chat session; unavailable Server messages never fall
+through to a community channel.
+
+The packaged [KEYBINDS.txt](../../game-mods/FCMBridge/hudmodloader-chat/KEYBINDS.txt) and
+shared [website/dashboard HUD guide](../../admin-dashboard/src/features/system/HudKeybindGuide.tsx)
+document this same mapping. These are HUD input commands; Electron overlay bindings above
+remain separate.
+
 ### Start typing and HUDModLoader menu
 
 With Fallout 76 focused, press `Insert` to open the widget's native input and start typing. Press
@@ -140,9 +166,12 @@ mod list to investigate why the editor remains unavailable. FCM does not open a 
 while xScal reports busy.
 
 The native xScal 0.2.18 editor worked in the Linux/Steam Proton test but returned
-`input_unavailable` on the tested Windows laptop. As a temporary Windows workaround,
-set `xscalInputMode=shared` in `Data/FCMChat.ini` and restart. This selects
-HUDModLoader's keyboard editor; controller text entry is unsupported in this mode.
+`input_unavailable` on the tested Windows laptop. The release owner approved
+native typing and gameplay-key blocking there with xScal 0.2.20 and its matching
+Address Library. The shipped `Data/FCMChat.ini` therefore sets
+`xscalInputMode=native`. For an affected older build, set
+`xscalInputMode=shared` in that file and restart. This selects HUDModLoader's
+keyboard editor; controller text entry is unsupported in shared mode.
 
 All eight HUD key lines are editable in `Data/FCMChat.ini`. Use a named key such as
 `openKey=PERIOD` or `openKey=COMMA`, or `VK_###` for a decimal Windows virtual-key code

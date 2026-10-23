@@ -10,10 +10,22 @@ class FCMServerBridge extends MovieClip {
     public var fcmServerBridgeMarker:Bool = true;
     /** Read-only diagnostics for provider logs, exports, and the isolated artifact harness. */
     public function storageDiagnostic():String return FcmBridgeStorage.diagnostic;
+    public function nameplateDiagnostic():String return (nameplateReceiver == null ? "receiver waiting" : nameplateReceiver.diagnostic)
+        + " " + nameplatePainter.diagnostic;
     public var lastFailure(default, null):String = "none";
     var tickPhase:String = "startup";
     var api:FcmBridgeStorage = null;
     var exporter:FcmBridgeExport;
+    var movieSession:String;
+    var nameplatePresence:FcmNameplates;
+    var nameplatePainter:FcmNameplatePainter;
+    var nameplateReceiver:FcmBridgeNameplates = null;
+    var nextNameplateProvider:Float = 0;
+    var nameplateGate:String = "start";
+    var nameplateError:String = "none";
+    public function nameplateProbe():String return nameplateGate + ":" + nameplateError
+        + ":r" + nameplatePresence.requestCount + ":a" + nameplatePresence.acceptedCount
+        + ":j" + nameplatePresence.rejectedCount;
     #if bridge_native_prototype
     #if !bridge_dev
     #error "Native transport prototype is development-only"
@@ -52,8 +64,12 @@ class FCMServerBridge extends MovieClip {
         mouseEnabled = false;
         mouseChildren = false;
         state = new FcmBridgeState(function() return Std.string(flash.Lib.getTimer()) + "-" + Std.string(Std.random(1000000000)));
-        exporter = new FcmBridgeExport(#if bridge_native_prototype nativeSession #else
-            Std.string(Std.random(1000000000)) + "-" + Std.string(Std.random(1000000000)) #end, ENVIRONMENT);
+        movieSession = #if bridge_native_prototype nativeSession #else
+            Std.string(Std.random(1000000000)) + "-" + Std.string(Std.random(1000000000))
+            + "-" + Std.string(Std.random(1000000000)) + "-" + Std.string(Std.random(1000000000)) #end;
+        exporter = new FcmBridgeExport(movieSession, ENVIRONMENT);
+        nameplatePresence = new FcmNameplates(movieSession);
+        nameplatePainter = new FcmNameplatePainter(this, nameplatePresence);
         #if bridge_perf
         exporter.timing = timing;
         #end
@@ -63,6 +79,7 @@ class FCMServerBridge extends MovieClip {
     static function main():Void { flash.Lib.current.addChild(new FCMServerBridge()); }
     function start(_:Event):Void {
         removeEventListener(Event.ADDED_TO_STAGE, start);
+        nameplatePainter.startFrames();
         timer = new Timer(500);
         timer.addEventListener(TimerEvent.TIMER, tick);
         timer.start();
@@ -201,6 +218,7 @@ class FCMServerBridge extends MovieClip {
         if (disposed) return;
         if (next != manager) {
             detach(); state.reset(); manager = next;
+            nameplatePresence.reset(); nameplatePainter.clear();
             if (manager != null) {
                 subscribe("MenuStackData"); subscribe("AccountInfoData");
                 for (key in KEYS) subscribe(key);
@@ -274,7 +292,7 @@ class FCMServerBridge extends MovieClip {
                 conflict = competingMod();
                 if (conflict) {
                     // Never enter the other mod's native chat queue.
-                    state.reset(); exportState(now, true);
+                    state.reset(); nameplatePresence.reset(); nameplatePainter.clear(); exportState(now, true);
                     status = "Disable the other FCM HUD mod before using this bridge";
                     return;
                 }
@@ -302,16 +320,69 @@ class FCMServerBridge extends MovieClip {
                 return;
             }
             tickPhase = "export";
+            #if bridge_nameplate_probe
+            exporter.nameplateProbe = nameplateProbe();
+            #end
             exportState(now, false, sampled);
+            #if !bridge_native_prototype
+            tickPhase = "nameplates";
+            updateNameplates(now);
+            #end
         } catch (error:Dynamic) {
-            lastFailure = tickPhase + " " + FcmBridgeRead.errorCode(error);
+            if (tickPhase == "nameplates" && nameplateReceiver != null) nameplateGate = nameplateReceiver.probe;
+            nameplateError = FcmBridgeRead.errorCode(error);
+            lastFailure = tickPhase + " " + nameplateError;
             status = "Bridge temporarily unavailable - retrying";
+        }
+    }
+    function updateNameplates(now:Float):Void {
+        if (disposed || conflict) return;
+        var active = state.fresh(now) && state.rosterGate() == "" && exporter.lastSuccess
+            && exporter.publishedWorld == state.session.requestId;
+        if (!active) { nameplateGate = "world"; nameplatePresence.reset(); nameplatePainter.clear(); }
+        if (active && nameplateReceiver == null && now >= nextNameplateProvider) {
+            nameplateGate = "surface";
+            if (!nameplatePainter.hasSurface()) return;
+            nextNameplateProvider = now + 30000;
+            nameplateGate = "discover";
+            var native = FcmNativeApi.discover(this);
+            if (disposed || conflict) return;
+            nameplateGate = "native";
+            if (native == null) return;
+            nameplateGate = "provider";
+            if (native.provider != api.provider) return;
+            nameplateGate = "chat";
+            if (!native.probeChatCapability()) return;
+            nameplateGate = "async";
+            if (!native.supportsNonBlockingConnect() || !native.supportsNonBlockingControl() || !native.supportsNonBlockingSend()) return;
+            nameplateGate = "create";
+            nameplateReceiver = new FcmBridgeNameplates(native.call, nameplatePresence);
+        }
+        if (nameplateReceiver != null) {
+            nameplateGate = "receive";
+            nameplateReceiver.tick(now, movieSession, state.session.requestId, active);
+            nameplateGate = nameplateReceiver.probe;
+            if (nameplateReceiver.lastError != "none") nameplateError = nameplateReceiver.lastError;
+        }
+        if (disposed || conflict) return;
+        if (active && nameplatePresence.context != "") {
+            // Native transport calls can publish a newer menu/world observation.
+            // Bind the first strict snapshot only after the receiver establishes
+            // the current context, and never rebind merely to renew cached evidence.
+            if (!state.fresh(flash.Lib.getTimer()) || state.rosterGate() != "" || !exporter.lastSuccess
+                    || exporter.publishedWorld != state.session.requestId
+                    || nameplatePresence.context != "bridge:" + movieSession + "/" + state.session.requestId) {
+                nameplatePresence.reset(); nameplatePainter.clear(); return;
+            }
+            nameplatePainter.bind(manager);
         }
     }
     function removed(_:Event):Void { shutdown(); }
     public function shutdown():Void {
         if (disposed) return;
         disposed = true;
+        if (nameplateReceiver != null) nameplateReceiver.shutdown();
+        nameplatePresence.reset(); nameplatePainter.shutdown();
         // Respect the same write budget on unload. If rate-limited or storage fails,
         // desktop game-exit/heartbeat expiry provides the fail-closed cleanup.
         try { exportState(flash.Lib.getTimer(), true); } catch (_:Dynamic) {}

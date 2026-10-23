@@ -27,6 +27,10 @@ class EventScenario {
                 check("guides are private individual records",
                     widget._records.length == before + hudLines.length + eventLines.length
                     && MockXscal.lastEventBody == "");
+                check("sos guide identifies Swarm of Suitors",
+                    FcmEventCommands.help().indexOf("/sos — Swarm of Suitors") >= 0
+                    && FcmEventCommands.help().indexOf("/sos — Surface to Air") < 0
+                    && FcmEventCommands.help().indexOf("/sts — Surface to Air") >= 0);
                 var first = widget._records[widget._records.length - eventLines.length];
                 var last = widget._records[widget._records.length - 1];
                 check("all event names are feed line items",
@@ -91,12 +95,12 @@ class EventScenario {
                 timer.stop();
                 check("event shortcut sent from General",
                     MockXscal.lastEventBody == "/sbq" && MockXscal.lastEventChannel == "global");
-                widget.handleSubmittedText("/t");
+                widget.handleSubmittedText("t");
                 var before = widget._records.length;
                 widget.handleSubmittedText("/sbq");
                 check("other channels get local policy feedback",
                     widget._records.length == before + 1
-                    && widget._records[widget._records.length - 1].body.indexOf("General") >= 0
+                    && widget._records[widget._records.length - 1].body.indexOf("Enter g to switch to General") >= 0
                     && MockXscal.lastEventChannel == "global");
                 flash.Lib.trace("EVENT PASS " + provider);
             } catch (error:Dynamic) {

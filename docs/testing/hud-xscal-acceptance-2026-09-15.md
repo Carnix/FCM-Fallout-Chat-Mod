@@ -1,5 +1,241 @@
 # xScal visible HUD acceptance — 2026-09-15
 
+## Desktop game-update test — 2026-10-20
+
+[Confirmed] The user requested the latest Nexus xScal locally after the game
+update, with the user performing the native test. The local Steam installation
+at `/mnt/ExtraStorage/SteamLibrary/steamapps/common/Fallout76` reports file version
+1.7.27.11 and Steam build 26054086. No Fallout 76 process was running during
+replacement. The MSI was not modified by this operation.
+
+The Nexus API still listed xScal 0.4.27 as the primary Main file (mod 4183,
+file 24229). Address Library mod 4298 had a new primary Main file 24268, version
+3, uploaded on October 20 for 1.7.27.11 and xScal 0.4.27 or newer. Both official
+ZIPs passed integrity checks; only the Steam address file was installed.
+
+- Provider ZIP SHA-256: `43b5806c65a12fdf1e9448a98de13e70b36321d540fc0e75a87bc66d98fa258a`.
+- Installed `dxgi.dll` SHA-256: `a900662963cd65cf312e7d275ab86ee1a350a42fefcc8b6c562a8b2affaef90a`.
+- Address Library ZIP SHA-256: `7dd67d4091a75aba6f5b563bb12c3919415a5cf06459a93d230027c028e5aa2a`.
+- Installed `Data/XSCAL/AddressLibrary/version-1-7-27-11-steam.bin` SHA-256:
+  `b8785036c1786de5909a8fba70f673e83c0b689ea970e298f25f0c13b41c2691`.
+
+The native provider, its libdeflate license and new address file compare byte for
+byte with the downloaded ZIP entries. Eight protected files verify unchanged:
+root `xscal.ini`, `Data/FCMChat.ini`, the public HUD 2.10.134 archive,
+HUDModLoader archive/registry, xScal authentication cache, the older address file
+and the Proton archive profile. Root configuration already had every shipped
+key and retained all four repeated `componentPath` entries, Chat enabled and
+`wss://falloutchatmod.com/relay`. The HUD retains its default eight keybinds and
+`xscalInputMode=native`; no HUD source or binary was rebuilt or replaced.
+
+Backup and manifest:
+`Fallout76/.extender-backups/before-xscal-0.4.27-game-1.7.27.11-20261020T232134Z/`.
+Its `Restore-PreviousProvider.py` validates backup and installed-file hashes,
+requires the game closed and restores only the three provider-install targets.
+The previous provider predates this game update; rollback alone does not establish
+compatibility with 1.7.27.11. Installation and independent verification records are
+`xscal-game-update-20261020/desktop-install.json` and `desktop-post-install.json`
+in conversation evidence.
+
+The unchanged public HUD's prior 29 pure-suite/source/package and full 81-case
+Ruffle results remain its regression evidence. Those results do not exercise the
+new game/provider pairing.
+
+**Basic native compatibility confirmed — 2026-10-21 local / 2026-10-22 UTC.**
+[Confirmed] The user reports "seems to work fine" after testing this installation.
+The fresh 355-line `desktop-acceptance-20261022T023759Z.log` snapshot reports xScal
+0.4.27 (line 1), runtime 1.7.27.11 / Steam (lines 4-5), 135 loaded Address Library
+entries (line 6), and widget 2.10.134 (line 17). Native sessions begin at lines
+149 and 221. Input capture reaches nine characters; submission and confirmed
+session end appear at lines 177 and 181, followed by an accepted provider send
+at line 187 and a matched own echo at line 195. The second session cancels at
+line 225, confirms release at line 230, and is followed by the MapMenu HUD-mode
+transition at line 237. No explicit errors or isolated failures occur in this
+snapshot. Its SHA-256 is
+`4434cc5fddc6c38be5ae744e0cae8b878dbe7d535473aa3a8b360a751aef714f`.
+
+The log and sanitized summary are retained in the conversation's
+`xscal-game-update-20261020/` evidence directory. The user did not enumerate every
+manual test case; record general successful operation plus the log-confirmed
+input/send/cancel/map checks. Broader native acceptance remains scoped to the
+tests actually performed. The original reported lockout remains unreproduced.
+
+## Production 2.10.134 input reproduction setup — 2026-10-19
+
+The user requested the public HUD 2.10.134 and default keybinds to investigate a
+report that pressing Insert opened chat but left keyboard typing and Escape
+unusable. The reporter confirmed the failure occurred in the supplied log's
+session with keyboard only. That log shows xScal 0.2.20 and widget 2.10.134,
+accepted Insert registration, no recorded physical open-key edge or editor start,
+and subsequent MapMenu/PauseMode activity. Input ownership remains unproven;
+the generic SharedHUDTools startup message does not identify the selected editor.
+
+With Fallout 76 closed, the desktop's 2.10.150 DEV archive was replaced with the
+exact BA2 from `Downloads/FCM HUD Mod-2.10.134 (PROD).zip`. Its SHA-256 is
+`7b76a2ee60b9957562718ed27ffede788ab1905a7b2c6755bd7ec9f638128560`, identical
+to the artifact at source revision `a1168b79c7df4026e3713245ad846b295cae42a0`.
+The production ZIP SHA-256 is
+`1965a462570b938a19b423b9aea45b1023f0fb5107ded55c61b8099b910f20d3`.
+The revision was tested in an isolated snapshot: all 29 pure Haxe suites,
+source/package/SWF/BA2/emoji checks, empty compiler diagnostics, and all 81 Ruffle
+cases passed. The decoded public BA2 payload equals the revision's SWF.
+
+`Data/FCMChat.ini` now uses `openKey=INSERT`, `channelNextKey=NextPage`,
+`channelPrevKey=PrevPage`, `scrollUpKey=Up`, `scrollDownKey=Down`, blank
+`scrollBottomKey`, `activateLinkKey=F8`, and `hideKey=DELETE`. The shipped editor
+choice is restored to `xscalInputMode=native`; the link host is
+`falloutchatmod.com/link` and root `xscal.ini` targets
+`wss://falloutchatmod.com/relay`. Other active configuration values were preserved.
+The xScal DLL, HUDModLoader archive/registry, and Proton archive profile hashes
+remain unchanged; the installer did not modify native authentication files.
+
+The previous archive, both modified configs, preserved loader/provider/profile
+files, and pre-launch log are under
+`Fallout76/.extender-backups/before-hud-2.10.134-prod-repro-20261019T214640Z/`.
+Its `INSTALL.json` records the verified file hashes and exact restore paths.
+No laptop files were changed by this installation.
+
+**Native acceptance is pending.** Start the desktop game using keyboard input,
+enter a world, press Insert, type a short draft, cancel with Escape, and verify
+that M opens the map afterward. Retain the fresh `xscal.log` before another
+launch. Record the actual editor selection, session begin/end, and physical-key
+events. This desktop is Linux/Proton; its result cannot establish Windows
+acceptance or identify the reporter's input mode by itself.
+
+## MSI production reproduction setup — 2026-10-19
+
+The user requested the Windows MSI laptop match the supplied xScal 0.4.27 / HUD
+2.10.134 setup. After the configured address became unreachable, an explicitly
+authorized local-subnet discovery found `192.168.40.170`. The saved SSH host key,
+hostname `MSI`, and Micro-Star GE66 Raider identity were verified before access.
+Fallout 76 was closed and its file version was 1.7.26.22.
+
+Installed the unchanged public 2.10.134 BA2 recorded above, official Nexus xScal
+0.4.27 Main file 24229 (mod 4183), its shipped config and libdeflate license,
+and the Steam Address Library 2.3 file 24230 (mod 4298), intended for this runtime
+and xScal release. Relevant payload SHA-256 values are:
+
+- xScal `dxgi.dll`: `a900662963cd65cf312e7d275ab86ee1a350a42fefcc8b6c562a8b2affaef90a`.
+- Steam Address Library: `07ee29c848519b3ec2b5f0f91ec836f36c529a368119d0e0ff55b19b1d061de0`.
+- HUD BA2: `7b76a2ee60b9957562718ed27ffede788ab1905a7b2c6755bd7ec9f638128560`.
+
+The active `dxgi.dll` replaces ZFE 0.21.1. Its original DLL is outside the game
+directory in the rollback backup; ZFE settings and authentication remain dormant
+and unchanged. The widget uses all eight defaults listed above, including Insert
+and Delete, `xscalInputMode=native`, and production relay/link targets. Other active
+HUD configuration values, HUDModLoader, its registry, and the archive profile were
+preserved. Independent verification confirms all six installed payload files,
+five protected files including the ZFE login cache, and a parseable restore script.
+
+Backup and verified install manifest:
+`C:\Users\White\Documents\FCM-Repro-Backups\before-hud134-xscal0427-prod-repro-20261019T221153Z\`.
+`Restore-PreviousSetup.ps1` in that directory restores the prior 2.10.150 DEV / ZFE
+setup after the game is closed, retaining copies of the test files before rollback.
+The first install attempt stopped before replacing its first file because PowerShell
+rejected a null File.Replace backup-path argument. Original hashes were rechecked;
+the corrected operation passed a native temporary-file probe before installation.
+
+The identical public HUD's previously completed 29-suite/source/package and 81-case
+Ruffle gates were reused; no HUD source or binary was rebuilt. These gates exercise
+the caller contract, not the new xScal DLL. **The user confirmed the MSI basic
+native input check:** visible typing, Escape cancellation, and opening the map
+with M. Message sending remains untested in this check. See the result below.
+
+### MSI post-install reproduction result — 2026-10-19
+
+[Confirmed] The user reports being unable to reproduce the issue on the MSI.
+A read-only live log snapshot at 22:22:24 UTC reports xScal 0.4.27 and HUD
+2.10.134 (`msi-live-input-20261019T222224Z.log`, lines 1 and 16). Lines 219-224
+record an Insert edge, panel restoration, native editor selection and an accepted
+session. Lines 229-238 record buffer lengths 1, 2, 3, 2, 1 and 0. This 278-line
+snapshot contains no terminal cancellation, confirmed release, submitted session
+or MapMenu HUD-mode transition; MapMenuData roster observations do not establish
+that the map opened. In the subsequent response, the user explicitly confirmed
+seeing the typed characters, closing chat with Escape, and opening the map with M.
+Record those three checks as passed by direct user observation; the earlier log
+snapshot independently establishes input capture. No message-send acceptance was
+reported. The original lockout remains unreproduced on the MSI, with its cause
+unresolved.
+
+### Current investigation leads
+
+[Confirmed] The original failure log reports xScal 0.2.20 (line 1) and accepted
+Insert registration (line 28), but contains no physical open-key edge or editor
+selection/start marker. The MSI's successful basic check uses xScal 0.4.27.
+The original and current provider versions therefore differ; no provider fix has
+been established by this comparison.
+
+[Confirmed] The user subsequently answered "No, only the HUD mod" when asked
+whether the desktop FCM app was also running during the affected session. Retire
+the desktop-app Insert/focus-conflict hypothesis for that reported configuration.
+Input ownership within the game/provider remains unresolved.
+
+[Hypothesized] Provider-version-dependent input behavior could account for the
+original failure and the later successful tests. A controlled same-machine check
+with unchanged HUD/configuration and known provider packages is needed. Failure
+that tracks only one provider version supports that hypothesis; the same failure
+across versions refutes a version-only explanation. Do not interpret the supplied
+0.4.27 log's input capture as proof that its prompt was visible.
+
+### Supplied xscal (2).log input evidence
+
+The separately supplied 703-line capture reports xScal 0.4.27, Steam 1.7.26.22,
+137 Address Library entries and HUD 2.10.134. Its SHA-256 is
+`51d71590bc8359bebf9758c3e97e6698c0da78bd6532fe235d115410ff52ca40`.
+At elapsed 2:30.957, line 133 clears the link gate after LINK COMPLETE. Lines
+171-187, 336-350 and 362-375 record three accepted native xScal sessions, terminal
+cancellation and confirmed release. The third session records text lengths
+2, 1 and 0 at lines 367-369. MapMenu follows each cancellation. There are no
+recorded submitted sessions or explicit error lines. This establishes captured
+native input and release activity; it does not prove every attempted key arrived,
+visible draft text, successful sending, or acceptance of the newly installed MSI
+files. The native poll logs the buffer length before updating the HUD prompt; it
+does not report the prompt's rendered visibility. A blank prompt while a known
+draft increases `textLen` would establish a display failure for that run. The log
+reports the provider version but does not fingerprint its DLL.
+
+## Previous local input acceptance — 2026-10-04
+
+The desktop now has official Nexus xScal 0.2.20 (mod 4183, file 23753,
+DLL SHA-256 `6ae053180b3d55ced86dfc7149372ef1c851f1980f187d53f77a1311f0b0979a`)
+and the Steam 1.7.26.22 Address Library (mod 4298, file 23827). The installed
+FCMChatWidget remains 2.10.136; its BA2 and `xscalInputMode=shared` were unchanged.
+Prior DLL/configuration files and an update manifest are under the game directory's
+`.extender-backups/before-xscal-0.2.20-nexus-20261004T195022Z/`.
+
+The user reports ordinary chat operation, typing, gameplay-control recovery, and F11
+appearance persistence working. DLSS coexistence and Server chat were not tested.
+Rebinding still needs an explicit test: after that report, the desktop's on-disk
+`openKey` was changed from Insert to Home, preserving `hideKey=DELETE` and shared input.
+The previous config is under `.extender-backups/before-home-rebind-20261004T203125Z/`.
+The reviewed startup log still records VK 45 (Insert); it does not prove the new Home
+binding has loaded or that the former Insert action has been released.
+
+**Emote interruption remains unresolved.** The user clarified the reproduction:
+start an emote animation, then open chat while it is playing; opening chat cancels
+the animation. They report the same failure on the MSI laptop using native xScal
+input. This is distinct from checking whether a new emote works after closing chat.
+The earlier broad chat acceptance report must not be treated as an emote pass.
+
+Confirmed desktop log sequence: widget 2.10.136 and xScal 0.2.20 loaded; the emotes
+action appeared at elapsed 00:04:58; HUD mode returned to All at 00:05:06; Insert
+opened the shared editor at 00:05:10. The log identifies the route but does not
+measure the character animation or establish why it stops. A read-only copy was
+retained at `/tmp/fcm-emote-investigation/desktop-xscal-before-next-launch.log`
+(SHA-256 `8abead4090968d198af5a44c297641996d6a3635082aba3a15296a62d544bc00`).
+
+Both xScal editor choices share the physical open-key poll in
+`FCMChatWidget.pollPhysicalNavigation`; `FcmNativeApi.isPhysicalKeyPressed` reads
+the key without swallowing it. Therefore a gameplay-visible opening key is one
+hypothesis, not a confirmed cause. The shared editor additionally starts the host
+ControlMap text lock. The user also confirmed that unused Pause/Break cancels the active emote
+without an FCM binding. Text-editor activation is therefore not required for the
+reported cancellation. This does not distinguish vanilla behavior from the active
+extender/mod stack; a baseline without the widget/extender remains untested.
+Do not change input ownership, remove gameplay suppression, or claim a provider fix
+on the strength of the current evidence. Ruffle can verify the FCM caller contract,
+but real emote animation continuity requires an in-game test on both editor paths.
+
 ## Scope and installation
 
 User-authorized local switch from ZFE to the official Nexus xScal 0.2.16 download, paired with

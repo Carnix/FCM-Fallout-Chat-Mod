@@ -2,8 +2,33 @@
 
 **Current release: FCMServerBridge 0.2.8.** It is published as a separate, optional
 HUDModLoader child and was installed locally with xScal 0.2.17 for a bridge test.
-The versioned 0.2.9 candidate adds unchanged-roster xScal write coalescing but
-is not published or native-accepted. Its new artifact must pass the full native
+The distributed DEV 0.2.10 candidate retains 0.2.9's unchanged-roster xScal write
+coalescing and adds an optional [blue-name cosmetic receiver](blue-nameplates.md).
+Source candidate **0.2.18** shares HUD 2.10.150's acquisition/continuation policy
+for already admitted visible nameplates under fresh private presence. Source
+acquisition still expires at 30 seconds; hidden, recycled, ineligible and withdrawn
+associations retire, and expired evidence cannot reacquire them. Timestamps,
+private TTLs and room/export authority remain unchanged. Required regression
+gates pass, including the complete 93-case Ruffle suite; native acceptance remains
+pending. It retains HUD 2.10.149's bounded correlated observations,
+deferred redraw handling and transient paint recovery with persistent numeric
+error/clear diagnostics. Paint cleanup uses GFx-compatible `indexOf`/`splice`;
+private requests allow three-second renewal headroom without changing submission
+deadlines or source age. At most four unexpired same-context replies can overlap;
+a newer accepted reply fences older ones, and resets discard every request.
+The 149 request experiment separates pruning, queueing and encoding into small
+methods with fixed call/entered phases after the fresh 148 native request failure.
+It establishes the cosmetic presence context before
+binding the painter's first snapshot, and requires that the current world matches
+the last successfully saved active export before requesting cosmetic presence.
+Pending pruning now uses indexed `splice` operations, with fixed request phases,
+after native 147 error 1014. Native compatibility remains unverified.
+The previous local 0.2.12 rebuild passed pure/export/package checks and the complete
+93-case provider harness, including startup and hop regressions. This automated
+evidence does not accept native game behavior. The existing DEV 0.2.10 ZIP and
+public 0.2.8 release remain unchanged. The preceding 0.2.17 local pure/package and complete
+93-case provider rerun passed. Neither new
+candidate is published or native-accepted. Its new artifact must pass the full native
 room, travel, and lag checks before updating the release packaging hash lock.
 That local installation is not native acceptance: the full ZFE/xScal mixed-client,
 room/message/travel matrix remains pending. Do not coinstall it with the visible
@@ -54,11 +79,15 @@ with the registered `modStorage` contract retained only for older xScal builds.
 Named storage allows the bridge and another HUDModLoader child such as Improved
 HUD to keep independent JSON documents. The bridge writes only
 `fcmserverbridge-dev` or `fcmserverbridge-prod` and never calls `register()` on
-0.2.17+. The visible FCM HUD does not use modStorage at all. Neither bridge adapter connects to native chat or
-consumes its event queue. The visible HUD retains existing native authentication.
-For ZFE, a DLL-only installation is normal. The bridge does not use or require
-`falloutchatmod.ini`, a TextChat fragment, a relay endpoint, or `zfe.ini`; do not create those
-files for the bridge. Install exactly one provider.
+0.2.17+. The visible FCM HUD uses its separate `fcmchatwidget-layout-v1` named
+document for appearance on xScal 0.2.17+. Storage adapters remain independent of
+native chat. In candidates 0.2.10 and 0.2.12 a separate optional receiver uses native chat
+only for private cosmetic presence, without changing desktop authentication,
+room coordination, exports or Server sends. It is never coinstalled with the HUD.
+For blue names on ZFE, install the package's FCMServerBridge TextChat fragment
+and preserve matching global Endpoint overrides. For xScal, merge the package's
+`[Chat] enabled=true` and `relayEndpoint` settings. Omitting/disabling native chat
+keeps the export-only Server bridge working. Install exactly one provider.
 0.2.1 also checks ZFE's legacy `BRG_OBJ.call` fallback, after the modern aliases,
 on the scope/parents/movie root/global. It must positively advertise `zfe-storage-v1`;
 missing, malformed, failed or throwing probes never enable writes. This restores
@@ -149,6 +178,37 @@ before the native save returns. The diagnostic build is not a release artifact;
 do not infer that a high `s` value is the cause of game lag without a same-world
 bridge-on/bridge-off comparison. The normal build retains its exact version
 label and does not include timing code.
+
+For an unexplained missing blue name, `package.py --target dev --nameplate-diagnostic`
+builds a separate, unpublished native probe. It keeps schema 1, the exact export
+path, observation authority and write cadence. The existing `build` string becomes
+`0.2.19-np:<gate>:<error>:r<count>:a<count>:j<count>`: fixed gate/error labels and
+lifetime private-presence request/accepted/rejected counts. It contains no names,
+tokens, request IDs or payloads, and remains under 64 characters. A saved record
+reports the previous receiver tick; reading or saving never renews evidence.
+
+`surface` means the public nameplate host was not found. `native`, `provider`,
+`chat`, and `async` identify rejected provider checks; `discover`/`create`/`receive`
+identify entry before a potentially failing native operation. The receiver reports
+`connect`, `auth`, `poll`, `request`, `send`, `waiting`, `transport`, `failure`, or
+`active`. `world` means current export/roster authority is unavailable. Error is
+`none`, `error`, or a bounded numeric VM code such as `E1014`; caught receiver
+errors persist for diagnosis. `active` confirms the receiver loop, not successful
+painting. This mode requires Dev and cannot be combined with the performance or
+native-transport experiment. It must never be published as a release.
+
+The 0.2.19 candidate separates the receiver's connect, auth, poll, event decoding
+and request/send methods, following the working HUD lifecycle. Fixed `*-call`
+phases distinguish helper invocation from entry; `events`/`event` describe only
+local decoding. A failure escaping the receiver reports its last phase. Fresh
+0.2.18 exports on both providers showed `receive:E1014` and zero requests;
+this narrows the failure boundary but does not identify a missing class. The
+candidate keeps the same provider checks, call order, retry/poll limits, lease
+deadlines, exported-world fence and painter. Native acceptance is still required.
+
+The [2026-10-23 bridge investigation](../../testing/blue-nameplates-2026-10-23-bridge.md)
+records why a fresh native probe is required; passing simulation does not establish
+that blue names work in the game.
 
 The desktop reads asynchronously with bounded size/schema checks. A transient missing, partial or
 invalid read during the provider's atomic file replacement retains only the last already-validated

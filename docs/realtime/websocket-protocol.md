@@ -4,6 +4,11 @@ All frames are JSON objects with a `type` string and a `payload` object. Directi
 
 **Legend:** C→S = client sends, S→C = server sends, S↔C = either direction
 
+The native `/relay` additionally accepts private `FCMCTL/1/NAMEPLATES;` cosmetic
+reads and emits `FCMNAMEPLATES/1;` system replies. They are excluded from desktop
+community/public feeds and history. See [the strict request/reply protocol,
+session ownership and expiry](../overlay/zfe/blue-nameplates.md#presence-and-authentication).
+
 ---
 
 ## Browser Connections (`/auth/ws-ticket`)
@@ -165,7 +170,11 @@ Validation rules:
 - `channelId` must be a UUID or start with `server:`
 - `metadata` capped at 2 KB serialized (oversized → dropped to `null`); rendered as plain text nodes client-side (no HTML injection). The Discord bridge normalizes compatible public FCM embeds into the same bounded `wiki_share`, `camp_item`, `minerva`, `nuke_codes`, and `server_status` metadata, while the HUD receives the compact text fallback.
 - Shared-card title actions re-run only supported card commands (`/nukecodes`, `/serverstatus`, `/camp`, `/minerva`) against the clicked message's `channelId`. This preserves delivery in aggregate feeds where the selected parent channel differs from the message's child channel.
-- Rate-limited to 5 msg/s
+- Flood-limited to 5 msg/s; shared human channel chat permits three messages
+  per rolling thirty seconds, then rejects the fourth for 35 seconds. Repeat floods
+  escalate to five minutes; sixty attempts in a rolling minute triggers that hard
+  cooldown. See
+  [shared chat slowmode](../moderation/chat-slowmode.md).
 
 `handlers.ts:1836–2461`
 
@@ -768,7 +777,11 @@ Broadcast when a report is filed (mirrors `report:new` for legacy admin panel co
 ```
 
 ### `rate:status`
-Accompanies an `error` frame when the message rate limit is exceeded.
+Accompanies an `error` frame when the message rate limit is exceeded. Shared chat
+slowmode adds `scope: "chat"` and reports the actual remaining cooldown in
+`retryAfterMs` (35,000 on the fourth attempt of an initial flood, up to 300,000 for
+repeat/extreme flooding). This also applies to
+Server messages sent through the desktop bridge.
 ```json
 {
   "type": "rate:status",

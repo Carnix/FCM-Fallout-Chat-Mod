@@ -6,7 +6,7 @@
  * `__SFECodeObj` and, in some builds, under `__SFCodeObj`. xScal may also
  * install an unrelated generic callback object at `__SFCodeObj.call`.
  * xScal 0.2.17 may also expose named `modStorage` on that object. The visible
- * HUD deliberately ignores storage; only the separate Server Bridge uses it.
+ * HUD uses it only for local appearance, separate from chat and input routing.
  * A bare `__SFCodeObj.call` is therefore ambiguous and must never be treated
  * as ZFE merely because it has a `call` member.
  * Discovery only inspects objects already exposed to the Scaleform movie; it
@@ -116,6 +116,18 @@ class FcmNativeApi {
         return provider == ZFE;
     }
 
+    /** Already-discovered xScal root; storage is never exposed on the ZFE path. */
+    public function xscalStorageRoot():Dynamic {
+        if (provider != XSCAL) return null;
+        for (candidate in [_loggerRaw, _raw, _inputRaw]) {
+            try {
+                if (candidate != null && Reflect.field(candidate, "modStorage") != null)
+                    return candidate;
+            } catch (_:Dynamic) {}
+        }
+        return null;
+    }
+
     /** Probe the general ZFE surface once and retain its capability document. */
     public function probeGeneralInputCapabilities():Bool {
         if (provider != ZFE || !zfeRaw(_raw)) return false;
@@ -164,6 +176,9 @@ class FcmNativeApi {
      */
     public function supportsNonBlockingControl():Bool {
         return provider == XSCAL || _runtimeInfo.indexOf("zfe-chat-async-control-v1") >= 0;
+    }
+    public function supportsNonBlockingConnect():Bool {
+        return provider == XSCAL || _runtimeInfo.indexOf("zfe-chat-async-connect-v1") >= 0;
     }
 
     /**

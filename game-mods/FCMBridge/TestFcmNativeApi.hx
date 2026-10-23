@@ -25,6 +25,7 @@ class TestFcmNativeApi {
         Reflect.setField(zScope, "__ZFE", zfe);
         var zApi:FcmNativeApi = FcmNativeApi.discover(zScope);
         check("discovers ZFE bridge", zApi != null && zApi.provider == FcmNativeApi.ZFE);
+        check("ZFE never exposes xScal layout storage", zApi.xscalStorageRoot() == null);
         check("routes canonical ZFE verb", Std.string(zApi.call("chat.v1.sendMessage", "{}"))
             .indexOf('"provider":"zfe"') >= 0);
         check("ZFE uses native input", zApi.supportsNativeInput());
@@ -62,6 +63,10 @@ class TestFcmNativeApi {
             syncZfe != null && syncZfe.probeChatCapability() && !syncZfe.supportsNonBlockingSend());
         check("legacy synchronous ZFE control fails the safety capability gate",
             !syncZfe.supportsNonBlockingControl());
+        check("legacy ZFE connect cannot be used by automatic cosmetic receiver", !syncZfe.supportsNonBlockingConnect());
+        var asyncConnectZfe = FcmNativeApi.fromZfe({call:function(verb:String, payload:Dynamic):String {
+            return '{"success":true,"capabilities":["zfe-chat-online-v1","zfe-chat-async-connect-v1"]}'; }});
+        check("positive ZFE async-connect contract", asyncConnectZfe.probeChatCapability() && asyncConnectZfe.supportsNonBlockingConnect());
 
         var asyncControlZfe:FcmNativeApi = FcmNativeApi.fromZfe({call: function(verb:String, payload:Dynamic):String {
             return '{"success":true,"capabilities":["zfe-chat-online-v1","zfe-chat-async-send-v1","zfe-chat-async-control-v1"]}';
@@ -233,7 +238,9 @@ class TestFcmNativeApi {
         });
         var xApi:FcmNativeApi = FcmNativeApi.discover(xScope);
         check("discovers xScal bridge", xApi != null && xApi.provider == FcmNativeApi.XSCAL);
-        check("visible HUD leaves xScal 0.2.17 named storage untouched", storageCalls == 0);
+        check("xScal exposes its discovered named storage root",
+            xApi.xscalStorageRoot() == Reflect.field(xScope, "__SFCodeObj"));
+        check("storage discovery has no calls or registration", storageCalls == 0);
         check("maps xScal connect", Std.string(xApi.call("chat.v1.connect", "{}"))
             .indexOf('"success":true') >= 0);
         xApi.call("chat.v1.getAuthState", "{}");
@@ -254,13 +261,14 @@ class TestFcmNativeApi {
         Reflect.setField(mixedScope, "__SFECodeObj", {chatInterface:chat});
         check("mixed ZFE and xScal providers are detected", FcmNativeApi.hasProviderConflict(mixedScope));
         check("xScal transport permits automatic server controls", xApi.supportsNonBlockingControl());
+        check("xScal cosmetic connect uses provider scheduling", xApi.supportsNonBlockingConnect());
         check("xScal can recover an empty retained subscriber after a HUD reload",
             FcmNativeApi.widgetMustRequestHistoryResync(FcmNativeApi.XSCAL));
         check("unsupported xScal command fails closed",
             Std.string(xApi.call("chat.v1.notACommand", "{}")).indexOf("unsupported_command") >= 0);
         check("xScal capability probe uses chatInterface", xApi.probeChatCapability()
             && xCalls[xCalls.length - 1] == "getRuntimeInfo|<none>");
-        check("visible HUD still leaves named storage untouched after chat use", storageCalls == 0);
+        check("chat transport leaves named storage untouched", storageCalls == 0);
         check("xScal without a logger fails log calls closed", Std.string(xApi.call("log", "{}")) == "");
 
         var xInputCalls:Array<String> = [];

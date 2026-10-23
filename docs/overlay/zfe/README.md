@@ -5,7 +5,149 @@ default desktop overlay. The overlay does not install game files or require an e
 HUD mod uses UI assets and already-exposed HUD data through an extender's sanctioned API; it
 must not add game-memory reads, code injection, or network/port scanning.
 
-**Current local typing setup (2026-09-26):** The Steam/Proton game has xScal
+**Current Dev integration candidate 2.10.151 (2026-10-22):** combines the local
+2.10.150 nameplate work with current Dev's adaptive cooldown/retry handling.
+All required local gates pass, including 93/93 Ruffle cases. The rebuilt DEV
+archive is installed on desktop and MSI with xScal 0.4.27, matching game/address
+libraries, preserved keybinds/cache files, verified backups and identical HUD
+hashes. Regression, package and installation results are recorded in the
+[Dev synchronization report](../../testing/hud-dev-sync-2026-10-22.md).
+Native blue-name stability and public publication remain pending.
+
+**Desktop game-update test (2026-10-20):** the local Steam game is 1.7.27.11.
+Installed official Nexus xScal 0.4.27 (mod 4183, Main file 24229) and the matching
+Steam Address Library v3 (mod 4298, Main file 24268). The HUD remains public
+2.10.134 PROD with native input and all eight default keybinds. Three installed
+files match the downloaded entries byte for byte; eight protected files,
+including settings, authentication, loader and HUD archives, are unchanged.
+**Basic native compatibility confirmed on 2026-10-21:** the user reports normal
+operation. The fresh log confirms the new runtime/address library, native typing,
+an accepted message with matched echo, cancellation with release, and map opening,
+with no explicit errors in the reviewed snapshot.
+See the [game-update setup](../../testing/hud-xscal-acceptance-2026-09-15.md#desktop-game-update-test--2026-10-20).
+
+**Previous desktop production input reproduction (2026-10-19):** the desktop had
+the public 2.10.134 archive, xScal 0.2.20, production relay/link targets, all eight
+default HUD keybinds, and `xscalInputMode=native`. This temporarily supersedes the
+desktop 2.10.150 DEV installation below. The prior archive and settings are backed
+up; this step did not change the laptop. The historical revision passed 29 pure
+Haxe suites, source/package checks, and all 81 Ruffle cases before installation.
+That setup's in-game typing, Escape, and map-recovery acceptance was pending. See the
+[input reproduction setup](../../testing/hud-xscal-acceptance-2026-09-15.md#production-210134-input-reproduction-setup--2026-10-19).
+
+**MSI production input reproduction (2026-10-19):** the Windows laptop now has
+the same public HUD 2.10.134 with official Nexus xScal 0.4.27 (Main file 24229),
+Steam 1.7.26.22 Address Library 2.3, production relay/link targets, native input,
+and all eight default HUD keybinds. ZFE 0.21.1 was replaced as the active provider;
+its prior DLL, settings, authentication cache and HUD 2.10.150 are backed up with
+a restore script. Six installed files and five protected files verify by hash.
+The user confirmed visible typing, Escape cancellation, and opening the map with
+M on this setup; the reported input lockout was not reproduced. Message sending
+remains untested in this check. See the
+[MSI setup and supplied-log evidence](../../testing/hud-xscal-acceptance-2026-09-15.md#msi-production-reproduction-setup--2026-10-19).
+
+**Blue-name candidate 2.10.150:** all required local gates pass, including 93/93
+Ruffle cases. On 2026-10-13, installed archive/backup hashes and settings/login
+verified on both machines; native stationary acceptance remains pending. The preceding
+149 receives private replies on both providers without 1014 or paint errors but
+still intermittently drops blue. 150 closes source acquisition at its original
+30-second deadline while continuing an already admitted exact visible association
+under current eligibility and fresh private presence. Hidden/recycled/ineligible
+or withdrawn associations retire and cannot be reacquired from expired evidence.
+Source timestamps, private leases and room/world authority are unchanged. See
+[the acquisition/continuation policy](blue-nameplates.md).
+
+**Previous diagnostic candidate 2.10.149:** the shared renderer retains strict
+ready/non-test generic markers and adds a separate cosmetic source for native
+HUD-correlated pushes. The source requires host-domain binding, matching current
+event/provider/cache ownership, explicit unready/test flags, validated scalar
+rows, current visible native ID/name and eligibility, private presence context
+and reset generation, and a push-only correlated source age below 30 seconds. A
+ready/non-test first-bind snapshot can establish an initial bounded generic source
+time; getter/frame/probe reads never renew it. Numeric entity ID `0` is valid;
+the unassigned uint sentinel is excluded. Only owned envelope identity is retained,
+with scalar marker copies and no row/payload/event retention. It paints
+after native redraw at stage RENDER priority `-10000`, checks the full name-field
+visibility chain and removes the invalid private CharacterInfoData probe. It
+cannot change rooms, authentication, leases, provider flags or watches. Terminal
+HUD auth/link failures retire presence and blue colors immediately. Stationary
+push gaps can expire cosmetic names and require an in-game availability check.
+See [blue nameplates](blue-nameplates.md), the
+[evidence review](../../testing/blue-nameplates-2026-10-07-review.md) and
+[native test matrix](../../testing/blue-nameplates-2026-10-06.md). Candidate
+2.10.145 passed all required local gates and was installed on both machines;
+fresh native logs confirm repeated restore-phase error 1006 and lease gaps.
+Candidate 2.10.146 passed all required local gates and was installed on both machines.
+The 2.10.147 follow-up retains up to four unexpired requests so independent timer
+ordering cannot discard a valid prior reply. Newer accepted replies fence older
+ones, and every reply keeps its own original TTL. All required local gates pass,
+including 93/93 Ruffle cases, and 2.10.147 is installed on both machines with
+verified archives, backups, settings and MSI login. Fresh native 147 acceptance
+fails with repeated 1014 and zero requests on both clients. Candidate 148 removes
+new local Array coercions using indexed pending pruning and adds fixed phases;
+all required local gates pass, including 93/93 Ruffle cases (8.4 minutes), and its
+DEV ZIP verifies. Fresh 148 native acceptance fails at `nameplates-request` with
+zero requests. The 149 experiment separates clock/session reads and the pruning,
+queueing and encoding methods. Fixed call/entered phases and bounded error/class
+diagnostics locate remaining failures without changing leases or source age.
+All required local gates pass, including 93/93 Ruffle cases; fresh native acceptance is required.
+It retains `indexOf`/`splice` for compatible
+paint cleanup and three-second minimum private-request spacing, leaving headroom
+below the five-second HUD timer. It retains transient
+paint recovery, persistent numeric errors and fixed clear reasons, and ten-second
+HUD roster renewal before the unchanged backend evidence deadline. Source age,
+private lease bounds and authentication gates remain unchanged. See the
+[recovery investigation](../../testing/blue-nameplates-2026-10-12-recovery.md).
+Bridge source **0.2.18** shares the
+painter, establishes cosmetic context before first binding/snapshot and requires
+the current successfully saved export world. Its required local regression rerun passes;
+the distributed DEV **0.2.10** ZIP is unchanged.
+
+**Previous DEV installs (2026-10-13):** Both machines used HUD 2.10.150, with
+matching tested-archive hashes and verified prior-archive backups. Desktop xScal
+0.2.20 retains Home/Delete; MSI ZFE 0.21.1 retains Period/Delete, its recreated
+native login cache and `D:\SteamLibrary\steamapps\common\Fallout76` install.
+All six desktop/seven laptop provider/config/profile files are unchanged.
+Both game processes were independently confirmed closed before replacement.
+147 and fresh 148 native acceptance failed with zero requests and error 1014.
+The preceding 149 requests and leases progress on both providers without paint
+errors, but its native stability fails with intermittent colors. 150 native
+stability and publication remain pending.
+
+**Previous DEV installs (2026-10-07):** Desktop xScal 0.2.20 and laptop ZFE
+0.21.1 use HUD 2.10.144, with Home/Delete and Period/Delete respectively.
+The incompatible laptop ZFE 0.15.0 was replaced with the official 0.21.1 matching
+Steam runtime 1.7.26.22. With both games independently confirmed closed, the
+2.10.144 candidate replaced only the HUD archive after 31 pure suites, nine
+source/package checks, empty compiler diagnostics and a complete 93/93 Ruffle
+pass. Both installed hashes, prior-archive backups and all six desktop/seven
+laptop preserved-file hashes are verified. Historical 2.10.142 logs show eligible markers
+matching a visible native plate and identical sampled event/provider/getter
+payloads on both clients, but `dataReady=false isTest=true` still blocks painting.
+Host-domain selection found the same supplied manager. The old CharacterInfoData
+comparison is invalid because the active HUD field is private. These observations
+confirm the earlier rejection, not its native registration cause. Fresh 2.10.144
+native color acceptance and public publication remain pending. See the
+[installed-machine evidence](../../testing/blue-nameplates-2026-10-06.md#installed-test-machines--2026-10-06).
+
+The 2.10.144 follow-up review reproduced and fixed immediate link-notice
+retirement and recovery after a failed subscription to the exact same manager.
+Both providers also pass sealed UInt upper-range matching and explicit rejection
+of conversation suffixes. Healthy bindings preserve source age; old pending
+replies stay rejected after relinking. Native acceptance remains pending.
+
+**MSI complete reinstall (2026-10-12):** Steam now uses
+`D:\SteamLibrary\steamapps\common\Fallout76` with the same 1.7.26.22 runtime.
+The complete HUD 2.10.144 / ZFE 0.21.1 / HUDModLoader v70 setup and saved
+configuration were restored from verified sources with the game closed. All
+seven installed files match; Period/Delete, DEV endpoints and the profile
+archive list are preserved. The old native login cache is unavailable, so the
+game required a fresh DEV link, which succeeded. Fresh 2.10.144 logs were captured;
+blue-name stability remains unaccepted. The later 2.10.147 install preserves
+the recreated native authentication cache;
+see the [reinstallation record](../../testing/blue-nameplates-2026-10-06.md#msi-complete-zfe-reinstall--2026-10-12).
+
+**Historical local typing setup (2026-09-26):** The Steam/Proton game had xScal
 0.2.18, HUDModLoader v70, and the source-built FCMChatWidget 2.10.134 BA2.
 `Data/FCMChat.ini` sets `xscalInputMode=shared` for
 the SharedHUDTools text editor and points its link prompt at hosted Dev; root
@@ -22,19 +164,32 @@ The MSI Windows 11 laptop was also reset to the same three Nexus ZIPs for a
 native Windows input trial. Its previous `FCMServerBridge` game mod, older
 HUDModLoader, FCM files, extender settings, caches, and logs were moved to
 `C:\Users\White\Documents\FCM-Repro-Backups\before-nexus-clean-20260925T221153Z`.
-The laptop now has the source-built FCMChatWidget 2.10.134 BA2, one loader
+The laptop has the source-built FCMChatWidget 2.10.134 BA2, one loader
 entry, and no active FCMServerBridge. Its `Data/FCMChat.ini` retains
-`openKey=PERIOD` and `xscalInputMode=shared`; its link and root `xscal.ini`
-relay point to hosted Dev. The prior BA2 and both config files are backed up
+`openKey=PERIOD`; its link and root `xscal.ini` relay point to hosted Dev.
+The prior BA2 and both config files are backed up
 under `C:\Users\White\Documents\FCM-Repro-Backups\before-hud-help-2.10.134-2026-09-26`.
 The installed BA2 hash matches the tested artifact. The release owner confirmed
 in-game typing, `/help`, event and giveaway commands, and their feed and
 Discord outcomes on this laptop with the Dev relay.
+On 2026-09-28, the author-supplied xScal 0.2.20 DLL and Steam runtime 1.7.26.10
+Address Library replaced the failed native-input 0.2.19 test. The original
+2.10.134 BA2 stayed installed, and `FCMChat.ini` now sets
+`xscalInputMode=native`. The release owner approved typing and gameplay-key
+blocking in game. The available 0.2.20 log confirms startup and Address Library
+loading but ends before the widget attaches, so the input session itself has
+user acceptance rather than a complete provider log.
+
+**Unreleased channel routing (2.10.137):** bare `t` or `s` plus Enter selects
+Trading or Server. `/t message`, `/i message`, and `/e message` send to those channels
+without changing the selected tab. A prefix without a message does not select a tab.
+No setting is required. See [keybinds](../keybinds.md#hud-channel-shortcuts).
+This source change does not establish installed or native game acceptance.
 
 ## Current implementation and verification
 
 **2.10.134 HUD event commands and selectable help candidate:** `/event help`
-adds the 33 seeded event shortcuts and names as private, individual feed rows,
+adds the 34 seeded event shortcuts and names as private, individual feed rows,
 including Gearing Up (`/gu`).
 `/help` points to `/event help` and `/mod help` without listing event names or
 staff actions.
@@ -310,8 +465,9 @@ BSUIDataManager-to-`SERVER-READY` observation remains bounded in-game acceptance
 drive and inspect that private state.
 
 The current unreleased typing-renewal candidate keeps automatic membership controls running
-while the chat editor is open. Confirmed rooms renew at the existing 30-second interval;
-unconfirmed attempts retain the 10-second retry interval. Editor ownership no longer suppresses
+while the chat editor is open. From 2.10.145, confirmed rooms renew every ten seconds
+to leave headroom before the 30-second cosmetic evidence deadline; unconfirmed
+attempts retain the ten-second retry interval. Editor ownership no longer suppresses
 these capability-gated nonblocking calls. Authentication, fresh roster evidence, world-generation
 checks and the 60-second relay-confirmation timeout remain unchanged. A native send receipt
 cannot renew the confirmation, and unchanged cached observations cannot become fresh merely
@@ -413,7 +569,7 @@ for configuration, request lifecycle, native acceptance limits and the xScal mai
 Activation requires the visible editor and a selected link; incoming messages never open links.
 The highlight color is independently configurable as `Selected message` in F11 → Customize →
 Colors or as `selectedRowColor` in `FCMChat.ini`; it persists through ZFE storage and the xScal
-device-scoped layout relay.
+named local layout document.
 Configured feed scrolling acts only while chat owns a visible input session. The blank newest and
 newest value is intentional: Home/End remain unassigned. Delete hides only while idle; `/hide` plus
 F11 → FCM → Hide chat remain available. F11 → FCM → Scroll to newest is always available.
@@ -451,7 +607,7 @@ establish text focus: xScal must also accept `Input.BeginInput`.
 | --- | --- | --- |
 | Shared package | One provider-neutral `FCMChatWidget.ba2` | Same BA2 |
 | Provider selection | Validated as the sole active extender | Validated as the sole active extender; the adapter checks `chatInterface` before ZFE if both surfaces appear, but the widget rejects that mixed install |
-| Primary visible editor | SharedHUDTools `TextEdit` with the host ControlMap lock | Native xScal text session by default; tested working on Linux/Steam Proton. Temporary `FCMChat.ini` `xscalInputMode=shared` workaround selects SharedHUDTools for the Windows laptop where native begin failed |
+| Primary visible editor | SharedHUDTools `TextEdit` with the host ControlMap lock | Native xScal text session by default; approved on the Windows laptop with xScal 0.2.20 and its matching Address Library. `FCMChat.ini` `xscalInputMode=shared` remains a workaround for affected older builds |
 | Physical keyboard with controller active | ZFE focuses the host's visible entry field while retaining its ControlMap lock | Native xScal text session when `BeginInput` validates; controller text entry is unsupported in shared mode |
 | Compatibility fallback | No unlocked editor fallback; a failed host editor refuses entry | SharedHUDTools when the native session is unsupported or shared mode is selected |
 | Multi-character typing | HUDTools' focused entry field has selection/caret enabled | Native session returns complete bounded text snapshots; the host fallback uses its entry field |
@@ -620,14 +776,20 @@ after changing a BA2 or native extender configuration.
 
 Packages do not redistribute extenders or Bethesda HUDMenu assets. The main website and Nexus
 ZIPs contain complete `ZFE (Install for ZFE only)/` and `xScal (Install for xScal only)/` folders without setup scripts; choose only one.
-Quick Configuration 2 and NukaMods users should extract the ZIP and import only their chosen
-folder's `Data (drag the contents into data folder)/FCMChatWidget.ba2` as a BA2 mod. The combined ZIP has two provider roots and
-is not a direct mod-manager import. The manager owns BA2 deployment and the archive-list entry;
+The [UNN-Devotek Quick Configuration 2 fork](https://github.com/UNN-Devotek/QuickConfiguration2)
+accepts the combined ZIP directly through its normal **Mods → Install mod** or drag-and-drop
+flow. It detects the installed provider and selects that folder. If neither provider is present,
+the user chooses ZFE or xScal; the fork downloads the selected official Nexus Mods package.
+It also offers HUDModLoader when missing. These downloads and the FCM package are reviewed and
+installed together with backups. The upstream Quick Configuration 2 and NukaMods flows still
+require extracting the ZIP and importing only the chosen folder's
+`Data (drag the contents into data folder)/FCMChatWidget.ba2` as a BA2 mod. For manual installs,
 copy only missing provider/FCM INIs, merge the HUDModLoader entry, and preserve edited INIs on
 updates. Check for exactly one BA2 in the game's `Data` folder and one archive-list entry.
 Legacy xScal-only website ZIPs may include an optional Windows helper. All builds include
 manual setup, keybind, customization, and emoji-license files. See the
-[build guide](../../../game-mods/FCMBridge/hudmodloader-chat/BUILD.md).
+[build guide](../../../game-mods/FCMBridge/hudmodloader-chat/BUILD.md) and the
+[Quick Configuration package contract](../../deployment/qc2-package-contract.md).
 
 ## Client version handshake (`clientVersion`)
 
@@ -668,3 +830,8 @@ native room-assignment change is introduced. Numeric labels for other rooms and
 room muting are overlay-only. Pure config tests and both delayed-auth Ruffle provider
 scenarios cover regular → staff → revoked labeling; native game acceptance of this
 candidate remains pending, independently of earlier released builds.
+
+The `/event help` shortcut `/sos` identifies **Swarm of Suitors**, and `/sts`
+identifies **Surface to Air**. The backend
+command data repair applies the same event name to announcements across Discord,
+the overlay, and the optional HUD; packaged HUD help updates require a new HUD build.

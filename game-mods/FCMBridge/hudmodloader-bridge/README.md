@@ -1,13 +1,60 @@
-# FCM Server Bridge 0.2.9 release candidate
+# FCM Server Bridge 0.2.19 source candidate
 
-0.2.9 carries the five-second unchanged-roster xScal export coalescing in a
-versioned candidate. It is not published or native-accepted. The packaged
+Fresh 0.2.18 native probes on both providers report `receive:E1014` with zero
+private requests and accepted replies, while roster exports remain active.
+0.2.19 separates cosmetic connect, auth, poll, event decoding and request/send
+methods, following the working visible HUD's staged lifecycle. The orchestration
+method no longer contains JSON encoding or an event-array cast/loop. This is a
+controlled native compatibility candidate, not an identified missing class or a
+confirmed color fix. It shares the unchanged HUD painter and lease policy.
+Boundary unit tests cover exceptions and unload during all four native calls;
+the isolated provider harness also tests unload inside native auth.
+All required local checks pass, including 97/97 Ruffle cases. The exact DEV probe
+archive was installed on desktop/xScal and MSI/ZFE with protected files unchanged.
+Both native receivers now advance accepted replies without the recorded E1014,
+and the user reports working colors. The desktop has since switched to the
+tested visible HUD for mixed-client validation; broader native acceptance remains
+pending. No hosted CI run or publication is claimed.
+
+The 2026-10-23 local overlay test reached one canonical room on both providers
+but showed no blue names. `package.py --target dev --nameplate-diagnostic`
+provides an unpublished gate/error probe in the existing export build field.
+See the [native investigation](../../../docs/testing/blue-nameplates-2026-10-23-bridge.md).
+This is diagnostic evidence collection; it does not claim a native color fix.
+
+0.2.18 shares HUD 2.10.150's stationary continuation for already admitted exact
+visible field/plate/entity/name associations under current eligibility and fresh
+private presence. Source acquisition expires at its original 30-second deadline;
+hidden, recycled, ineligible or withdrawn associations retire and cannot be
+reacquired from expired evidence. Source timestamps, private TTLs and export/room
+authority are unchanged. Required local regression gates pass, including all
+93 Ruffle cases; no new bridge distribution/install or native acceptance is claimed. See the
+[full cosmetic policy](../../../docs/overlay/zfe/blue-nameplates.md).
+
+0.2.17 retains the five-second unchanged-roster xScal export coalescing and the
+optional 0.2.10 blue-name receiver. It shares HUD 2.10.149's correlated marker
+source, deferred redraw handling, transient paint recovery and persistent numeric
+error/clear diagnostics. Paint cleanup uses GFx-compatible `indexOf`/`splice`, and
+private requests retain a three-second minimum interval with unchanged bounded TTLs.
+At most four unexpired same-context replies may overlap; a newer accepted reply
+fences older replies, and resets clear every pending request.
+Pending pruning uses indexed `splice` operations with fixed request phases after
+HUD 147 native error 1014. Fresh 148 native acceptance also fails. The 149
+experiment separates pruning, queueing and encoding methods with fixed
+call/entered phases. Native compatibility remains unverified.
+It establishes the cosmetic context before
+the painter's first snapshot, and fences requests to the last successfully saved
+active export world. The distributed DEV 0.2.10 ZIP is unchanged. The source
+candidate is not published or native-accepted. The packaged
 0.2.8 bridge remains the current public release until the new candidate passes
 native room, travel, and lag acceptance and its exact ZIP hash is pinned by the
 overlay release packaging scripts.
 
 Invisible, optional HUDModLoader child. Sign into the desktop overlay only.
-No bridge login/code/pairing, chat connection, input editor or helper service.
+No bridge login/code/pairing, input editor or helper service. Optional blue names
+use a separate native-chat receiver for private cosmetic presence; disabling it
+leaves the export-only Server bridge working. See the
+[blue-name contract](../../../docs/overlay/zfe/blue-nameplates.md).
 
 Requires official ZFE scoped storage or xScal 0.2.17+ named modStorage plus HUDModLoader.
 Install BA2 and merge loader/archive configs with the game closed; preserve unrelated
@@ -18,7 +65,8 @@ See [INSTALL.template.txt](INSTALL.template.txt) and the maintained
 ## Contract
 
 - `FCMServerBridge`: bounded native UI observations and subscriptions,
-  deferred refresh and lifecycle disposal. No native chat APIs.
+  deferred refresh and lifecycle disposal. Optional cosmetic native chat does
+  not authenticate the overlay, assign rooms or alter exported observations.
 - `FcmBridgeState`: copied observations, source precedence, world generation,
   fast-travel continuity and 30-second expiry.
 - `FcmBridgeExport`: schema-1 bounded snapshot, maximum one write/sec. xScal
@@ -38,6 +86,14 @@ must share the same canonical room/history/publication across all provider pairi
 Roster names supply mutual-discovery evidence, not account authentication or an
 authoritative world ID.
 
+The previous local 0.2.12 regression build passed the pure/export/package checks and the
+complete 93-case provider harness, including an initial live marker snapshot
+without subsequent pushes, same-context resets, successful-export fencing,
+hops, fresh marker recovery, expiry and teardown. Native acceptance is pending;
+the requested local deliverable is HUD 2.10.150. The preceding 0.2.17 local pure/package and
+complete 93-case provider rerun pass;
+no new bridge distribution or installation is requested.
+
 ## Build and verify
 
 Requires Haxe 4.3+, Python 3 and simulator dependencies. From this directory:
@@ -50,13 +106,14 @@ cd ../hudmodloader-chat
 for suite in test-*.hxml; do haxe "$suite" || exit 1; done
 npm test --prefix simulator
 cd ../hudmodloader-bridge
-python3 package.py --target dev --output ../../../_dev-test-builds/server-bridge-0.2.9/FCM-Server-Bridge-0.2.9-DEV.zip
+python3 package.py --target dev --output ../../../_dev-test-builds/server-bridge-0.2.16/FCM-Server-Bridge-0.2.16-DEV.zip
 ```
 
 Also run parent native-adapter/auth/source checks and affected backend, overlay and
 dashboard suites. Both package targets require normalized FWS v32, one BTDX v1 GNRL
-entry `Interface/FCMServerBridge.swf`, decoded-byte equality and no native-chat,
-login, harness, renderer or input symbols. Packaging during tests is an owned test
+entry `Interface/FCMServerBridge.swf`, decoded-byte equality and no login, harness,
+chat widget or input symbols. Only the optional cosmetic receiver and painter
+may use native-chat/render surfaces. Packaging during tests is an owned test
 fixture, not install approval.
 
 `haxe build.hxml -D bridge_dev` compiles Dev; omitting the define compiles Prod.
@@ -68,9 +125,9 @@ release. Its existing export `build` field adds `p`, `e`, and `s` last/peak
 millisecond pairs for the two-second world observation pass, JSON encoding,
 and native storage save. Peaks accumulate for the current HUD movie session;
 encode and save samples appear in the following export.
-For example, `0.2.9-c5-perf:p4/18:e0/2:s1/27` means the latest/peak save took
+For example, `0.2.16-c5-perf:p4/18:e0/2:s1/27` means the latest/peak save took
 1/27 ms. Values are capped at 9999 ms; no names, raw identifiers, or extra
-storage writes are included. The regular build keeps the exact `0.2.9` marker.
+storage writes are included. The regular build keeps the exact `0.2.16` marker.
 Compare the same game/world with the bridge absent and present while keeping
 xScal, HUDModLoader, and other mods unchanged. Ruffle cannot prove native
 frame timing; keep this candidate native-unverified until an in-game test.

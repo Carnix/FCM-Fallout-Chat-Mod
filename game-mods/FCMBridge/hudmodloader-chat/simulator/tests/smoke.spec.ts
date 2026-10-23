@@ -1,10 +1,43 @@
 import { expect, test } from '@playwright/test';
+
+for (const provider of ['zfe', 'xscal']) {
+  test(`blue HUD names preserve vanilla colors and expire on ${provider}`, async ({ page }) => {
+    await page.goto(`/?mode=harness&provider=${provider}&scenario=nameplates`);
+    await expect(page.locator('#log')).toContainText(`NAMEPLATES PASS ${provider}`, { timeout: 20_000 });
+    await expect(page.locator('#log')).not.toContainText('NAMEPLATES FAIL');
+  });
+}
 import { readFile } from 'node:fs/promises';
 import { HOSTED_HISTORY_PER_CHANNEL, mapHistory } from '../scripts/sync-hosted-dev.mjs';
 import { normalizeHudChannel, validateHostedSend } from '../scripts/hosted-dev-bridge.mjs';
 import { applyKeybindsToIni, browserKey, defaultKeybinds, normalizeKeybinds } from '../src/keybinds';
 
 for (const provider of ['xscal', 'zfe']) {
+  test(`paints corroborated native nameplates through ${provider}`, async ({ page }) => {
+    await page.goto(`/?mode=harness&provider=${provider}&scenario=native-nameplates`);
+    await expect(page.locator('#log')).toContainText(/NATIVE-NAMEPLATES (PASS|FAIL)/, { timeout: 25_000 });
+    const log = await page.locator('#log').textContent();
+    expect(log).toContain(`NATIVE-NAMEPLATES PASS ${provider}`);
+    expect(log).toContain(`NATIVE-NAMEPLATES MATRIX PASS ${provider} source=owned expiry=bounded invalid=restored generation=fenced`);
+    expect(log).toContain(`NATIVE-NAMEPLATES RENDER PASS ${provider} native=deferred final=blue expiry=no-loop unload=clean`);
+    expect(log).toContain(`NATIVE-NAMEPLATES REQUEST-DIAGNOSTICS PASS ${provider} phases=fixed exception=private class=allowlisted lease=unchanged`);
+    expect(log).toContain(`NATIVE-NAMEPLATES STATIONARY PASS ${provider} admitted=retained source=not-renewed hidden=retired acquisition=fresh lease=bounded`);
+    expect(log).not.toContain('NATIVE-NAMEPLATES FAIL');
+  });
+  test(`bare tokens select tabs while prefixed sends keep the current tab (${provider})`, async ({ page }) => {
+    await page.goto(`/?mode=harness&provider=${provider}&scenario=channel-send-tab`);
+    await expect(page.locator('#log')).toContainText(/CHANNEL-SEND (PASS|FAIL)/, { timeout: 25_000 });
+    await expect(page.locator('#log')).toContainText(`CHANNEL-SEND PASS ${provider}`);
+    await expect(page.locator('#log')).not.toContainText('CHANNEL-SEND FAIL');
+  });
+
+  test(`cooldown notice stays private to the sender (${provider})`, async ({ page }) => {
+    await page.goto(`/?mode=harness&provider=${provider}&scenario=cooldown`);
+    await expect(page.locator('#log')).toContainText(/COOLDOWN (PASS|FAIL)/, { timeout: 25_000 });
+    await expect(page.locator('#log')).toContainText(`COOLDOWN PASS ${provider} sender-only=true public-rows=0`);
+    await expect(page.locator('#log')).not.toContainText('COOLDOWN FAIL');
+  });
+
   test(`giveaway command and announcement stay in the selected channel (${provider})`, async ({ page }) => {
     await page.goto(`/?mode=harness&provider=${provider}&scenario=giveaway`);
     await expect(page.locator('#log')).toContainText(/GIVEAWAY (PASS|FAIL)/, { timeout: 25_000 });
@@ -59,6 +92,20 @@ test('period opens and releases an xScal native text session', async ({ page }) 
   await expect(page.locator('#log')).not.toContainText('XSCAL-SESSION-INPUT FAIL');
 });
 
+test('rebinding xScal chat to Home releases Insert and End hides while idle', async ({ page }) => {
+  await page.goto('/?mode=harness&provider=xscal&scenario=xscal-home-rebind');
+  await expect(page.locator('#log')).toContainText(/XSCAL-SESSION-INPUT (PASS|FAIL)/, { timeout: 20_000 });
+  await expect(page.locator('#log')).toContainText('XSCAL-SESSION-INPUT PASS xscal-home-rebind');
+  await expect(page.locator('#log')).not.toContainText('XSCAL-SESSION-INPUT FAIL');
+});
+
+test('xScal saves and restores appearance in named local storage', async ({ page }) => {
+  await page.goto('/?mode=harness&provider=xscal&scenario=xscal-local-layout');
+  await expect(page.locator('#log')).toContainText(/XSCAL-LAYOUT (PASS|FAIL)/, { timeout: 20_000 });
+  await expect(page.locator('#log')).toContainText('XSCAL-LAYOUT PASS');
+  await expect(page.locator('#log')).not.toContainText('XSCAL-LAYOUT FAIL');
+});
+
 test.afterEach(async ({ page, request }) => {
   await page.evaluate(() => (window as Window & { __FCM_SIM_TEARDOWN__?: () => void }).__FCM_SIM_TEARDOWN__?.()).catch(() => undefined);
   await expect(page.locator('#ruffle-player')).toHaveCount(0);
@@ -66,9 +113,19 @@ test.afterEach(async ({ page, request }) => {
 });
 
 test('loads the exact production widget artifact and records browser key delivery', async ({ page }) => {
+  const source = await readFile(new URL('../../FCMChatWidget.hx', import.meta.url), 'utf8');
+  const version = source.match(/static inline var VERSION:String\s*=\s*"([^"]+)"/)?.[1];
+  expect(version).toMatch(/^\d+\.\d+\.\d+$/);
+  const artifact = await readFile(new URL('../../FCMChatWidget.swf', import.meta.url));
+  const response = page.waitForResponse(value => new URL(value.url()).pathname === '/FCMChatWidget.swf'
+    && value.request().method() === 'GET');
   await page.goto('/?mode=artifact');
   await expect(page.locator('#status')).toHaveAttribute('data-state', 'ready', { timeout: 20_000 });
-  await expect(page.locator('#widget-version')).toHaveText('2.10.134');
+  // Observe the SWF fetched by Ruffle as well as the generated version label.
+  const loadedSwf = await (await response).body();
+  expect(loadedSwf.equals(artifact), 'Ruffle fetched the exact production SWF').toBe(true);
+  expect(loadedSwf.includes(Buffer.from(version!)), 'Loaded SWF contains the current compiled version').toBe(true);
+  await expect(page.locator('#widget-version')).toHaveText(version!);
   await page.locator('#focus-stage').click();
   await page.keyboard.press('Insert');
   await page.keyboard.press('ArrowUp');

@@ -99,7 +99,7 @@ jobs:
         workspace: [backend, admin-dashboard, cross-platform-overlay]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -147,6 +147,7 @@ jobs:
       # CI_RUNNER set (self-hosted) => 'docker'; unset (hosted default) => 'localhost'.
       DATABASE_URL: postgresql://fcm:fcm@${{ vars.CI_RUNNER && 'docker' || 'localhost' }}:5432/fcm_test
       REDIS_URL: redis://${{ vars.CI_RUNNER && 'docker' || 'localhost' }}:6379
+      CHAT_SLOWMODE_TEST_REDIS_URL: redis://${{ vars.CI_RUNNER && 'docker' || 'localhost' }}:6379
       NODE_ENV: test
       # express-session requires a secret at boot; integration tests boot the app.
       SESSION_SECRET: ci-test-session-secret
@@ -155,7 +156,7 @@ jobs:
       ADMIN_API_KEY: test-admin-key
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -193,7 +194,7 @@ jobs:
     runs-on: ${{ vars.CI_RUNNER && fromJSON(vars.CI_RUNNER) || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -258,7 +259,7 @@ jobs:
           cat osv-report.md osv-err.txt 2>/dev/null || true
       - name: Upload report artifact
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: osv-report
           path: |
@@ -280,7 +281,7 @@ jobs:
         workspace: [cross-platform-overlay, admin-dashboard]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -345,11 +346,14 @@ jobs:
             game-mods/FCMBridge/hudmodloader-chat/FcmHistory.hx
             game-mods/FCMBridge/hudmodloader-chat/FcmRoster.hx
             game-mods/FCMBridge/hudmodloader-chat/FcmServerSession.hx
+            game-mods/FCMBridge/hudmodloader-chat/FcmXscalLayoutStorage.hx
             game-mods/FCMBridge/hudmodloader-chat/FcmRenderGeneration.hx
             game-mods/FCMBridge/hudmodloader-chat/TestFcmHistory.hx
             game-mods/FCMBridge/hudmodloader-chat/TestFcmRoster.hx
             game-mods/FCMBridge/hudmodloader-chat/TestFcmRenderGeneration.hx
+            game-mods/FCMBridge/hudmodloader-chat/TestFcmXscalLayoutStorage.hx
             game-mods/FCMBridge/hudmodloader-chat/test-history.hxml
+            game-mods/FCMBridge/hudmodloader-chat/test-xscal-layout-storage.hxml
             game-mods/FCMBridge/hudmodloader-chat/test-render-generation.hxml
             game-mods/FCMBridge/hudmenu-chat/test_ba2tool.py
             game-mods/FCMBridge/tools/validate_swf.py
@@ -367,9 +371,12 @@ jobs:
         run: |
           python3 game-mods/FCMBridge/hudmenu-chat/test_anchors.py
           python3 game-mods/FCMBridge/hudmenu-chat/test_ba2tool.py
+          python3 game-mods/FCMBridge/hudmodloader-chat/test_artifact_freshness.py
+          python3 game-mods/FCMBridge/hudmodloader-chat/artifact_freshness.py
           python3 game-mods/FCMBridge/hudmodloader-chat/test_package.py
           python3 game-mods/FCMBridge/tools/test_validate_swf.py
           python3 Packaging/test-release-scripts.py
+          python3 Packaging/test-qc2-package-contract.py
       # FcmConfig parser/clamp unit tests (CAP-001..005, #303/#304) — pure Haxe, --interp.
       - name: Install Haxe
         run: sudo apt-get update && sudo apt-get install -y haxe
@@ -382,10 +389,14 @@ jobs:
       - name: Test bridge roster adapter and copied observation freshness
         working-directory: game-mods/FCMBridge/hudmodloader-chat
         run: haxe test-roster-reader.hxml
+      - name: Test cosmetic presence leases and bridge receiver
+        working-directory: game-mods/FCMBridge/hudmodloader-chat
+        run: haxe test-nameplates.hxml
       - name: Run HUD device-layout tests
         working-directory: game-mods/FCMBridge/hudmodloader-chat
         run: |
           haxe test-hud-layout.hxml
+          haxe test-xscal-layout-storage.hxml
       - name: Run FcmConfig unit tests
         working-directory: game-mods/FCMBridge/hudmodloader-chat
         run: haxe test-config.hxml
@@ -457,7 +468,7 @@ jobs:
     runs-on: ${{ vars.CI_RUNNER && fromJSON(vars.CI_RUNNER) || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
           cache: npm
@@ -478,7 +489,7 @@ jobs:
           npm test
       - name: Upload harness failures
         if: failure()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: hud-ruffle-failure
           path: |
@@ -499,7 +510,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -545,7 +556,7 @@ jobs:
         run: xvfb-run -a -s '-screen 0 1920x1080x24' npm --prefix cross-platform-overlay run test:interaction
       - name: Upload overlay interaction evidence
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: overlay-usability-evidence
           path: cross-platform-overlay/test-results/overlay-usability
@@ -578,7 +589,7 @@ jobs:
         shell: powershell
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm

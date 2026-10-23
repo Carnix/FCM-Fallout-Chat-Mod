@@ -16,7 +16,7 @@ import zlib
 
 ROOT = Path(__file__).resolve().parent
 ENTRY = "Interface/FCMServerBridge.swf"
-VERSION = "0.2.9"
+VERSION = "0.2.19"
 
 
 def module(name: str, path: Path):
@@ -40,19 +40,22 @@ def validate_pair(swf: Path, archive: Path, native_prototype: bool = False) -> d
     if ba2._raw_blob(raw, records[0]) != swf.read_bytes():
         raise ValueError("Archive SWF differs from compiled SWF")
     payload = swf.read_bytes()
-    forbidden_symbols = [b"FCMChatWidget", b"flash.text.TextField", b"TextEdit", b"URLLoader", b"Socket",
+    forbidden_symbols = [b"FCMChatWidget", b"TextEdit", b"URLLoader", b"Socket",
                       b"SharedHUDTools", b"HUDMod::UserEvent", b"ShowMenu", b"CloseMenu",
                       b"BridgeRosterScenario", b"BRIDGE-ROSTER", b"PackagedBridgeHost", b"IsolatedProvider",
                       b"LINK REQUIRED", b"FCMBRIDGE/1;", b"JsonParser"]
     if not native_prototype:
-        forbidden_symbols += [b"chat.v1.", b"chatInterface", b"NATIVE-PROTOTYPE"]
+        forbidden_symbols += [b"FCMCTL/1/NATIVE-PROTOTYPE:", b"NATIVE-PROTOTYPE", b"FcmBridgeNativePrototype"]
     for forbidden in forbidden_symbols:
         if forbidden in payload:
             raise ValueError(f"Background build unexpectedly contains {forbidden!r}")
     return info
 
 
-def build(target: str, output: Path, diagnostic: bool = False, native_prototype: bool = False) -> dict:
+def build(target: str, output: Path, diagnostic: bool = False, native_prototype: bool = False,
+          nameplate_diagnostic: bool = False) -> dict:
+    if nameplate_diagnostic and (target != "dev" or diagnostic or native_prototype):
+        raise ValueError("Nameplate diagnostic requires dev and no other diagnostic mode")
     if native_prototype and (target != "dev" or diagnostic):
         raise ValueError("Native prototype requires dev and cannot use storage performance labels")
     host = "dev.falloutchatmod.com" if target == "dev" else "falloutchatmod.com"
@@ -66,6 +69,7 @@ def build(target: str, output: Path, diagnostic: bool = False, native_prototype:
         if target == "dev": command += ["-D", "bridge_dev"]
         if diagnostic: command += ["-D", "bridge_perf"]
         if native_prototype: command += ["-D", "bridge_native_prototype"]
+        if nameplate_diagnostic: command += ["-D", "bridge_nameplate_probe"]
         subprocess.run(command, cwd=ROOT, check=True)
         raw = swf.read_bytes()
         if raw[:3] != b"CWS": raise ValueError("Unexpected compiler SWF format")
@@ -78,10 +82,18 @@ def build(target: str, output: Path, diagnostic: bool = False, native_prototype:
                     "ba2Sha256": hashlib.sha256(archive.read_bytes()).hexdigest()}
         if diagnostic: manifest["diagnostic"] = True
         if native_prototype: manifest["nativePrototype"] = True
+        if nameplate_diagnostic: manifest["nameplateDiagnostic"] = True
         with ZipFile(output, "w", ZIP_DEFLATED) as package:
             package.write(archive, "Data/FCMServerBridge.ba2")
             package.writestr("FCMServerBridge.hudmodloader.ini", "FCMServerBridge\n")
             package.writestr("Fallout76Custom.ini.example", "[Archive]\nsResourceArchive2List=HUDModLoader.ba2,FCMServerBridge.ba2\n")
+            if not native_prototype:
+                package.writestr("Provider-ZFE/Data/ZFE/TextChat/fragments/FCMServerBridge.ini",
+                    f"; Optional native cosmetic receiver. Server chat/auth stay in the desktop.\n[TextChat]\n"
+                    f"Endpoint=wss://{host}/relay\nAllowedChannels=server\nDefaultChannel=server\nAutoConnect=false\n")
+                package.writestr("Provider-xScal/xscal.ini",
+                    f"; Merge into the existing file beside Fallout76.exe; preserve other sections.\n"
+                    f"[Chat]\nenabled=true\nrelayEndpoint=wss://{host}/relay\n")
             export_config = {"schemaVersion": 1, "environment": target,
                 "zfe": f"Data/ZFE/Storage/FCMServerBridge/{target}-state.json",
                 "xscal": f"Data/modsdata/fcmserverbridge-{target}.json"}
@@ -103,6 +115,13 @@ def build(target: str, output: Path, diagnostic: bool = False, native_prototype:
                     "After a spike, read only the build field from Data/modsdata/fcmserverbridge-"
                     + target + ".json. Do not share the full export; it contains roster names.\n\n"
                     + instructions_text)
+            if nameplate_diagnostic:
+                instructions_text = ("NAMEPLATE DIAGNOSTIC TEST BUILD - NOT FOR RELEASE\n"
+                    "Read only the export build field: version-np:gate:error:rN:aN:jN.\n"
+                    "r/a/j are private presence request, accepted and rejected counts.\n"
+                    "The gate is world/surface/discover/native/provider/chat/async/create/receive.\n"
+                    "Errors are fixed none/error or a bounded numeric VM error code.\n"
+                    "No extra file, native call, player name or token is added.\n\n" + instructions_text)
             package.writestr("INSTALL.txt", instructions_text)
         print(f"Built {output} ({output.stat().st_size} bytes)")
         return manifest
@@ -120,5 +139,7 @@ if __name__ == "__main__":
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--diagnostic", action="store_true", help="test-only timing build; never publish")
     parser.add_argument("--native-prototype", action="store_true", help="local dev native transport experiment")
+    parser.add_argument("--nameplate-diagnostic", action="store_true", help="dev-only native color gate probe; never publish")
     args = parser.parse_args()
-    print(json.dumps(build(args.target, args.output, args.diagnostic, args.native_prototype), indent=2))
+    print(json.dumps(build(args.target, args.output, args.diagnostic, args.native_prototype,
+                           args.nameplate_diagnostic), indent=2))

@@ -1,7 +1,7 @@
 name: Build Windows QA
 
 # Builds the QA-channel Windows overlay (BUILD_CHANNEL=qa -> targets the dev backend
-# + QA OAuth login) on the self-hosted Windows runner and uploads it as a workflow
+# + QA OAuth login) on a native Windows runner and uploads it as a workflow
 # artifact. Unsigned by design: QA testers are vetted, and QA builds are not published
 # to the release registry or Nexus. The signed PROD installer is build-windows.yml.
 on:
@@ -37,7 +37,7 @@ jobs:
   build-windows-qa:
     name: Build Windows QA (unsigned)
     needs: authorize
-    runs-on: [self-hosted, windows, unn]
+    runs-on: ${{ fromJSON(vars.QA_RUNNER_WINDOWS || '["windows-latest"]') }}
     defaults:
       run:
         shell: powershell
@@ -45,7 +45,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24'
 
@@ -96,8 +96,31 @@ jobs:
             throw "QA build emitted retired auto-update files: $($feedFiles.Name -join ', ')"
           }
 
+      - name: Verify embedded QA identity
+        working-directory: cross-platform-overlay
+        env:
+          EXPECTED_VERSION: ${{ inputs.version }}
+        run: |
+          $builtVersion = @'
+          const asar = require('@electron/asar');
+          const pkg = JSON.parse(asar.extractFile('dist-electron/win-unpacked/resources/app.asar', 'package.json'));
+          if (pkg.fcmChannel !== 'qa' || pkg.productName !== 'Fallout Chat Mod QA'
+              || pkg.desktopName !== 'fallout-chat-mod-qa.desktop'
+              || (process.env.EXPECTED_VERSION && pkg.version !== process.env.EXPECTED_VERSION)) {
+            throw new Error('Embedded QA identity/version does not match the build contract');
+          }
+          console.log(pkg.version);
+          '@ | node
+          if ($LASTEXITCODE -ne 0) { throw "Embedded QA metadata verification failed" }
+          "QA_BUILD_VERSION=$builtVersion" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Smoke-test the packaged QA application
+        run: |
+          & ./Packaging/smoke-test.ps1 -Version $env:QA_BUILD_VERSION -Artifact QA
+          if ($LASTEXITCODE -ne 0) { throw "Packaged QA startup smoke failed" }
+
       - name: Upload QA installer artifacts
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: fcm-overlay-qa-windows
           # NSIS installer + portable .exe. No latest.yml / blockmap (no auto-update).
